@@ -1,4 +1,4 @@
-module jiyeol-lee/localdev
+module github.com/jiyeol-lee/localdev
 
 go 1.24.1
 

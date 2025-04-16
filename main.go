@@ -2,8 +2,9 @@ package main
 
 import (
 	"fmt"
-	"jiyeol-lee/localdev/pkg/app"
 	"log"
+
+	"github.com/jiyeol-lee/localdev/pkg/app"
 )
 
 func main() {
