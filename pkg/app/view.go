@@ -73,8 +73,8 @@ func (a *App) runUserCommand(userCmd string, textView *tview.TextView) {
 
 // getRootView creates the root view for the application
 func (a *App) getRootView() *tview.Pages {
-	l := len(a.config.Spaces)
 	a.textViews = make([]*tview.TextView, l)
+	l := len(a.config.Panes)
 	rows, cols := getGridDimensions(l)
 
 	root := tview.NewPages()
@@ -85,7 +85,7 @@ func (a *App) getRootView() *tview.Pages {
 
 	row := 0
 	col := 0
-	for index, space := range a.config.Spaces {
+	for index, pane := range a.config.Panes {
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
 			SetScrollable(true).
@@ -94,7 +94,7 @@ func (a *App) getRootView() *tview.Pages {
 			}).ScrollToEnd()
 		tv.
 			SetBorder(true).
-			SetTitle(fmt.Sprintf("[%d] %s", index+1, space.Name))
+			SetTitle(fmt.Sprintf("[%d] %s", index+1, pane.Name))
 
 		tv.SetBlurFunc(func() {
 			tv.SetBorderColor(tcell.ColorWhite)
@@ -105,7 +105,7 @@ func (a *App) getRootView() *tview.Pages {
 
 		a.textViews[index] = tv
 
-		a.runUserCommand("cd "+space.Dir+" && "+space.Start, tv)
+		a.runUserCommand("cd "+pane.Dir+" && "+pane.Start, &a.views[index])
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
 			row = 0

@@ -38,8 +38,8 @@ func Run() (*App, error) {
 	return a, nil
 }
 
-// StopSpaces stops all spaces defined in the configuration.
-func (a *App) StopSpaces() {
+// StopPanes stops all panes defined in the configuration.
+func (a *App) StopPanes() {
 	var wg sync.WaitGroup
 	colors := []string{
 		"\033[38;2;255;165;0m",   // Orange
@@ -55,22 +55,22 @@ func (a *App) StopSpaces() {
 	}
 	reset := "\033[0m"
 
-	for i, space := range a.config.Spaces {
-		space := space // capture
+	for i, pane := range a.config.Panes {
+		pane := pane // capture
 		color := colors[i%len(colors)]
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", space.Dir, space.Stop))
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
 			if err != nil || err2 != nil {
 				fmt.Printf(
-					"❌ %sError creating pipes for space %s: %v%s\n",
+					"❌ %sError creating pipes for pane %s: %v%s\n",
 					color,
-					space.Name,
+					pane.Name,
 					err,
 					reset,
 				)
@@ -81,7 +81,7 @@ func (a *App) StopSpaces() {
 				fmt.Printf(
 					"❌ %sFailed to start stop command for %s: %v%s\n",
 					color,
-					space.Name,
+					pane.Name,
 					err,
 					reset,
 				)
@@ -91,7 +91,7 @@ func (a *App) StopSpaces() {
 			scanAndPrint := func(r io.ReadCloser) {
 				scanner := bufio.NewScanner(r)
 				for scanner.Scan() {
-					fmt.Printf("%s[%s] %s%s\n", color, space.Name, scanner.Text(), reset)
+					fmt.Printf("%s[%s] %s%s\n", color, pane.Name, scanner.Text(), reset)
 				}
 			}
 
