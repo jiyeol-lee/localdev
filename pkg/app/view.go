@@ -41,7 +41,7 @@ func makeFlexibleSlice(size int) []int {
 }
 
 // runUserCommand executes a user command in the specified directory and writes the output to the provided text view
-func (a *App) runUserCommand(userCmd string, textView *tview.TextView) {
+func (a *App) runUserCommand(userCmd string, view *AppView) {
 	cmd := exec.Command("sh", "-c", userCmd)
 
 	stdout, _ := cmd.StdoutPipe()
@@ -51,12 +51,14 @@ func (a *App) runUserCommand(userCmd string, textView *tview.TextView) {
 		log.Panicln("Error starting command:", err)
 	}
 
+	view.pid = cmd.Process.Pid
+
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			line := scanner.Text()
 			a.tviewApp.QueueUpdateDraw(func() {
-				textView.Write([]byte(line + "\n"))
+				view.textView.Write([]byte(line + "\n"))
 			})
 		}
 	}()
@@ -66,7 +68,7 @@ func (a *App) runUserCommand(userCmd string, textView *tview.TextView) {
 		for scanner.Scan() {
 			line := scanner.Text()
 			a.tviewApp.QueueUpdateDraw(func() {
-				textView.Write([]byte("[#8B4513]" + line + "[white]\n"))
+				view.textView.Write([]byte("[#8B4513]" + line + "[white]\n"))
 			})
 		}
 	}()
@@ -74,8 +76,8 @@ func (a *App) runUserCommand(userCmd string, textView *tview.TextView) {
 
 // getRootView creates the root view for the application
 func (a *App) getRootView() *tview.Pages {
-	a.textViews = make([]*tview.TextView, l)
 	l := len(a.config.Panes)
+	a.views = make([]AppView, l)
 	rows, cols := getGridDimensions(l)
 
 	root := tview.NewPages()
@@ -104,7 +106,8 @@ func (a *App) getRootView() *tview.Pages {
 			tv.SetBorderColor(tcell.ColorGreen)
 		})
 
-		a.textViews[index] = tv
+		a.views[index].textView = tv
+		a.views[index].pid = 0
 
 		a.runUserCommand("cd "+pane.Dir+" && "+pane.Start, &a.views[index])
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)

@@ -10,11 +10,16 @@ import (
 	"github.com/rivo/tview"
 )
 
+type AppView struct {
+	pid      int
+	textView *tview.TextView
+}
+
 // App is the main application structure that holds the configuration and text views.
 type App struct {
-	tviewApp  *tview.Application
-	config    *Config
-	textViews []*tview.TextView
+	tviewApp *tview.Application
+	config   *Config
+	views    []AppView
 }
 
 // Run initializes the application, loads the configuration, and sets up the root view.
