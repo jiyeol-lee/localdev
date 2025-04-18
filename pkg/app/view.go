@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/rivo/tview"
 )
 
@@ -114,7 +115,7 @@ func (a *App) getRootView() *tview.Pages {
 			row++
 		}
 	}
-	root.AddPage("grid", grid, true, true)
+	root.AddPage(constant.Page.MainPage, grid, true, true)
 
 	return root
 }
