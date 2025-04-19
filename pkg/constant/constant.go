@@ -5,3 +5,9 @@ var Page = struct {
 }{
 	MainPage: "main",
 }
+
+var ReservedCommand = struct {
+	KillProcess string
+}{
+	KillProcess: "__KILL_PROCESS__",
+}

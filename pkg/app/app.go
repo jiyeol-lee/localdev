@@ -4,9 +4,11 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 
+	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/rivo/tview"
 )
 
@@ -63,10 +65,44 @@ func (a *App) StopPanes() {
 	for i, pane := range a.config.Panes {
 		pane := pane // capture
 		color := colors[i%len(colors)]
+		pid := a.views[i].pid
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
+
+			if pane.Stop == constant.ReservedCommand.KillProcess {
+				fmt.Printf(
+					"%s[%s] Killing process with PID %d...%s\n",
+					color,
+					pane.Name,
+					pid,
+					reset,
+				)
+				process, err := os.FindProcess(pid)
+				if err != nil {
+					fmt.Printf(
+						"%s[%s] ❌ Failed to find process: %v%s\n",
+						color,
+						pane.Name,
+						err,
+						reset,
+					)
+					return
+				}
+				if err := process.Kill(); err != nil {
+					fmt.Printf(
+						"%s[%s] ❌ Failed to kill process: %v%s\n",
+						color,
+						pane.Name,
+						err,
+						reset,
+					)
+				} else {
+					fmt.Printf("%s[%s] ✅ Successfully killed process with PID %d%s\n", color, pane.Name, pid, reset)
+				}
+				return
+			}
 
 			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
 			stdout, err := cmd.StdoutPipe()
