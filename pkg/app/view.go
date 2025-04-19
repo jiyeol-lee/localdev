@@ -40,7 +40,7 @@ func makeFlexibleSlice(size int) []int {
 	return s
 }
 
-// runUserCommand executes a user command in the specified directory and writes the output to the provided text view
+// runUserCommand executes a user-defined command in a new process and captures its output
 func (a *App) runUserCommand(userCmd string, view *AppView) {
 	cmd := exec.Command("sh", "-c", userCmd)
 
@@ -51,7 +51,7 @@ func (a *App) runUserCommand(userCmd string, view *AppView) {
 		log.Panicln("Error starting command:", err)
 	}
 
-	view.pid = cmd.Process.Pid
+	view.processId = cmd.Process.Pid
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)
@@ -77,7 +77,7 @@ func (a *App) runUserCommand(userCmd string, view *AppView) {
 // getRootView creates the root view for the application
 func (a *App) getRootView() *tview.Pages {
 	l := len(a.config.Panes)
-	a.views = make([]AppView, l)
+	a.views = make([]*AppView, l)
 	rows, cols := getGridDimensions(l)
 
 	root := tview.NewPages()
@@ -106,10 +106,12 @@ func (a *App) getRootView() *tview.Pages {
 			tv.SetBorderColor(tcell.ColorGreen)
 		})
 
-		a.views[index].textView = tv
-		a.views[index].pid = 0
+		a.views[index] = &AppView{
+			textView:  tv,
+			processId: 0,
+		}
 
-		a.runUserCommand("cd "+pane.Dir+" && "+pane.Start, &a.views[index])
+		a.runUserCommand("cd "+pane.Dir+" && "+pane.Start, a.views[index])
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
 			row = 0

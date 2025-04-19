@@ -13,15 +13,15 @@ import (
 )
 
 type AppView struct {
-	pid      int
-	textView *tview.TextView
+	processId int
+	textView  *tview.TextView
 }
 
 // App is the main application structure that holds the configuration and text views.
 type App struct {
 	tviewApp *tview.Application
 	config   *Config
-	views    []AppView
+	views    []*AppView
 }
 
 // Run initializes the application, loads the configuration, and sets up the root view.
@@ -65,21 +65,30 @@ func (a *App) StopPanes() {
 	for i, pane := range a.config.Panes {
 		pane := pane // capture
 		color := colors[i%len(colors)]
-		pid := a.views[i].pid
+		processId := a.views[i].processId
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
 			if pane.Stop == constant.ReservedCommand.KillProcess {
+				if processId == 0 {
+					fmt.Printf(
+						"%s[%s] ⚠️ No process associated with this pane (PID is 0). Skipping...%s\n",
+						color,
+						pane.Name,
+						reset,
+					)
+					return
+				}
 				fmt.Printf(
 					"%s[%s] Killing process with PID %d...%s\n",
 					color,
 					pane.Name,
-					pid,
+					processId,
 					reset,
 				)
-				process, err := os.FindProcess(pid)
+				process, err := os.FindProcess(processId)
 				if err != nil {
 					fmt.Printf(
 						"%s[%s] ❌ Failed to find process: %v%s\n",
@@ -99,7 +108,7 @@ func (a *App) StopPanes() {
 						reset,
 					)
 				} else {
-					fmt.Printf("%s[%s] ✅ Successfully killed process with PID %d%s\n", color, pane.Name, pid, reset)
+					fmt.Printf("%s[%s] ✅ Successfully killed process with PID %d%s\n", color, pane.Name, processId, reset)
 				}
 				return
 			}
@@ -107,14 +116,25 @@ func (a *App) StopPanes() {
 			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
-			if err != nil || err2 != nil {
+			if err != nil {
 				fmt.Printf(
-					"❌ %sError creating pipes for pane %s: %v%s\n",
+					"❌ %sError creating stdout pipe for pane %s: %v%s\n",
 					color,
 					pane.Name,
 					err,
 					reset,
 				)
+			}
+			if err2 != nil {
+				fmt.Printf(
+					"❌ %sError creating stderr pipe for pane %s: %v%s\n",
+					color,
+					pane.Name,
+					err2,
+					reset,
+				)
+			}
+			if err != nil || err2 != nil {
 				return
 			}
 
