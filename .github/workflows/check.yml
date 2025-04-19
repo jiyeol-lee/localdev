@@ -1,0 +1,77 @@
+name: CI - Test and Build
+
+on:
+  pull_request:
+    types: [opened, reopened, synchronize]
+  push:
+    branches:
+      - main
+
+jobs:
+  run-tests:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.1"
+
+      - name: Run Go Tests
+        run: go test ./...
+
+  build-linux:
+    name: Build - Linux
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.1"
+
+      - name: Build for Linux
+        run: |
+          mkdir -p bin
+          set GOOS=linux
+          set GOARCH=amd64
+          go build -o bin/app-linux main.go
+
+  build-macos:
+    name: Build - macOS
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.1"
+
+      - name: Build for macOS
+        run: |
+          mkdir -p bin
+          set GOOS=darwin
+          set GOARCH=amd64
+          go build -o bin/app-macos main.go
+
+  build-windows:
+    name: Build - Windows
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.1"
+
+      - name: Build for Windows
+        run: |
+          mkdir -p bin
+          set GOOS=windows
+          set GOARCH=amd64
+          go build -o bin/app-windows.exe main.go
