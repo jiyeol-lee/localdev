@@ -4,17 +4,24 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"sync"
 
+	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/rivo/tview"
 )
 
+type AppView struct {
+	processId int
+	textView  *tview.TextView
+}
+
 // App is the main application structure that holds the configuration and text views.
 type App struct {
-	tviewApp  *tview.Application
-	config    *Config
-	textViews []*tview.TextView
+	tviewApp *tview.Application
+	config   *Config
+	views    []*AppView
 }
 
 // Run initializes the application, loads the configuration, and sets up the root view.
@@ -38,8 +45,8 @@ func Run() (*App, error) {
 	return a, nil
 }
 
-// StopSpaces stops all spaces defined in the configuration.
-func (a *App) StopSpaces() {
+// StopPanes stops all panes defined in the configuration.
+func (a *App) StopPanes() {
 	var wg sync.WaitGroup
 	colors := []string{
 		"\033[38;2;255;165;0m",   // Orange
@@ -55,25 +62,79 @@ func (a *App) StopSpaces() {
 	}
 	reset := "\033[0m"
 
-	for i, space := range a.config.Spaces {
-		space := space // capture
+	for i, pane := range a.config.Panes {
+		pane := pane // capture
 		color := colors[i%len(colors)]
+		processId := a.views[i].processId
 
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
 
-			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", space.Dir, space.Stop))
+			if pane.Stop == constant.ReservedCommand.KillProcess {
+				if processId == 0 {
+					fmt.Printf(
+						"%s[%s] ⚠️ No process associated with this pane (PID is 0). Skipping...%s\n",
+						color,
+						pane.Name,
+						reset,
+					)
+					return
+				}
+				fmt.Printf(
+					"%s[%s] Killing process with PID %d...%s\n",
+					color,
+					pane.Name,
+					processId,
+					reset,
+				)
+				process, err := os.FindProcess(processId)
+				if err != nil {
+					fmt.Printf(
+						"%s[%s] ❌ Failed to find process: %v%s\n",
+						color,
+						pane.Name,
+						err,
+						reset,
+					)
+					return
+				}
+				if err := process.Kill(); err != nil {
+					fmt.Printf(
+						"%s[%s] ❌ Failed to kill process: %v%s\n",
+						color,
+						pane.Name,
+						err,
+						reset,
+					)
+				} else {
+					fmt.Printf("%s[%s] ✅ Successfully killed process with PID %d%s\n", color, pane.Name, processId, reset)
+				}
+				return
+			}
+
+			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
-			if err != nil || err2 != nil {
+			if err != nil {
 				fmt.Printf(
-					"❌ %sError creating pipes for space %s: %v%s\n",
+					"❌ %sError creating stdout pipe for pane %s: %v%s\n",
 					color,
-					space.Name,
+					pane.Name,
 					err,
 					reset,
 				)
+			}
+			if err2 != nil {
+				fmt.Printf(
+					"❌ %sError creating stderr pipe for pane %s: %v%s\n",
+					color,
+					pane.Name,
+					err2,
+					reset,
+				)
+			}
+			if err != nil || err2 != nil {
 				return
 			}
 
@@ -81,7 +142,7 @@ func (a *App) StopSpaces() {
 				fmt.Printf(
 					"❌ %sFailed to start stop command for %s: %v%s\n",
 					color,
-					space.Name,
+					pane.Name,
 					err,
 					reset,
 				)
@@ -91,7 +152,7 @@ func (a *App) StopSpaces() {
 			scanAndPrint := func(r io.ReadCloser) {
 				scanner := bufio.NewScanner(r)
 				for scanner.Scan() {
-					fmt.Printf("%s[%s] %s%s\n", color, space.Name, scanner.Text(), reset)
+					fmt.Printf("%s[%s] %s%s\n", color, pane.Name, scanner.Text(), reset)
 				}
 			}
 

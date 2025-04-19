@@ -6,7 +6,7 @@ import (
 	"path/filepath"
 )
 
-type ConfigSpace struct {
+type ConfigPane struct {
 	Name  string `json:"name"`
 	Dir   string `json:"dir"`
 	Start string `json:"start"`
@@ -14,7 +14,7 @@ type ConfigSpace struct {
 }
 
 type Config struct {
-	Spaces []ConfigSpace `json:"spaces"`
+	Panes []ConfigPane `json:"panes"`
 }
 
 // defaultConfigFile returns the default configuration file path.

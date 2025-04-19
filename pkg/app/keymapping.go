@@ -32,10 +32,10 @@ func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
 
 // keyMapping handles key events for switching focus between text views.
 func (a *App) keyMapping(event *tcell.EventKey) *tcell.EventKey {
-	textViewsLength := len(a.textViews)
+	textViewsLength := len(a.views)
 
 	if action, ok := keyToFocusAction(event.Rune(), textViewsLength); ok {
-		a.tviewApp.SetFocus(a.textViews[action])
+		a.tviewApp.SetFocus(a.views[action].textView)
 	}
 
 	return event

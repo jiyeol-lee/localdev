@@ -15,8 +15,8 @@ func main() {
 
 	// When app.Stop() is called, this will run afterward
 	defer func() {
-		fmt.Println("🛑 Stopping all spaces...")
-		a.StopSpaces()
-		fmt.Println("✅ All spaces stopped.")
+		fmt.Println("🛑 Stopping all panes...")
+		a.StopPanes()
+		fmt.Println("✅ All panes stopped.")
 	}()
 }
