@@ -7,6 +7,7 @@ import (
 	"os/exec"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/jiyeol-lee/localdev/pkg/command"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/rivo/tview"
 )
@@ -41,8 +42,9 @@ func makeFlexibleSlice(size int) []int {
 }
 
 // runUserCommand executes a user-defined command in a new process and captures its output
-func (a *App) runUserCommand(userCmd string, view *AppView) {
+func (a *App) runUserCommand(dir string, userCmd string, view *AppView) {
 	cmd := exec.Command("sh", "-c", userCmd)
+	cmd.Dir = dir
 
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
@@ -74,6 +76,31 @@ func (a *App) runUserCommand(userCmd string, view *AppView) {
 	}()
 }
 
+// getPaneTitle generates the title for each pane in the grid
+func getPaneTitle(paneIndex int, pane ConfigPane, focused bool) string {
+	branch, err := command.GetCurrentBranch(pane.Dir)
+	branchInfo := branch
+	// if git is not initialized, it will return an error
+	if err != nil {
+		branchInfo = "N/A"
+	}
+	status, err := command.GetBranchSyncStatus(pane.Dir)
+	// if git is not pushed to remote, it will return an error
+	if err == nil {
+		branchInfo += fmt.Sprintf(
+			" [yellow]↑%d[white] [yellow]↓%d[white]",
+			status.Ahead,
+			status.Behind,
+		)
+	}
+
+	if focused {
+		return fmt.Sprintf("[green][%d] %s[white] - %s", paneIndex+1, pane.Name, branchInfo)
+	}
+
+	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, pane.Name, branchInfo)
+}
+
 // getRootView creates the root view for the application
 func (a *App) getRootView() *tview.Pages {
 	l := len(a.config.Panes)
@@ -97,13 +124,15 @@ func (a *App) getRootView() *tview.Pages {
 			}).ScrollToEnd()
 		tv.
 			SetBorder(true).
-			SetTitle(fmt.Sprintf("[%d] %s", index+1, pane.Name))
+			SetTitle(getPaneTitle(index, pane, tv.HasFocus()))
 
 		tv.SetBlurFunc(func() {
-			tv.SetBorderColor(tcell.ColorWhite)
+			tv.SetBorderColor(tcell.ColorWhite).
+				SetTitle(getPaneTitle(index, pane, false))
 		})
 		tv.SetFocusFunc(func() {
-			tv.SetBorderColor(tcell.ColorGreen)
+			tv.SetBorderColor(tcell.ColorGreen).
+				SetTitle(getPaneTitle(index, pane, true))
 		})
 
 		a.views[index] = &AppView{
@@ -111,7 +140,7 @@ func (a *App) getRootView() *tview.Pages {
 			processId: 0,
 		}
 
-		a.runUserCommand("cd "+pane.Dir+" && "+pane.Start, a.views[index])
+		a.runUserCommand(pane.Dir, pane.Start, a.views[index])
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
 			row = 0
