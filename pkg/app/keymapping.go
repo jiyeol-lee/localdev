@@ -1,6 +1,12 @@
 package app
 
-import "github.com/gdamore/tcell/v2"
+import (
+	"fmt"
+	"os/exec"
+	"reflect"
+
+	"github.com/gdamore/tcell/v2"
+)
 
 // keyToFocusAction maps key inputs to focus actions for text views.
 func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
@@ -30,12 +36,73 @@ func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
 	}
 }
 
+// keyToCommandAction maps key inputs to command actions defined in the configuration.
+func keyToCommandAction(key rune, configCommands *ConfigCommands) ([]byte, error) {
+	if configCommands == nil {
+		return nil, fmt.Errorf("configCommands is nil")
+	}
+
+	fieldName := ""
+
+	if key >= 97 && key <= 122 {
+		fieldName = fmt.Sprintf("Lower%c", key-32)
+	} else if key >= 65 && key <= 90 {
+		fieldName = fmt.Sprintf("Upper%c", key)
+	}
+
+	if fieldName == "" {
+		return nil, fmt.Errorf("invalid key: %c", key)
+	}
+
+	v := reflect.ValueOf(configCommands).Elem()
+	field := v.FieldByName(fieldName)
+
+	if !field.IsValid() || field.IsNil() {
+		return nil, fmt.Errorf("command not found for key: %c", key)
+	}
+
+	cmdStruct := field.Interface().(*ConfigCommand)
+	if cmdStruct == nil {
+		return nil, fmt.Errorf("command not found for key: %c", key)
+	}
+
+	cmd := exec.Command("sh", "-c", cmdStruct.Command)
+	output, err := cmd.Output()
+	if err != nil {
+		return nil, err
+	}
+
+	if cmdStruct.Silent {
+		return nil, nil
+	}
+
+	return output, nil
+}
+
+func (a *App) focusedViewIndex() int {
+	for i, view := range a.views {
+		if view.textView.HasFocus() {
+			return i
+		}
+	}
+
+	return -1
+}
+
 // keyMapping handles key events for switching focus between text views.
 func (a *App) keyMapping(event *tcell.EventKey) *tcell.EventKey {
-	textViewsLength := len(a.views)
+	viewsLength := len(a.views)
 
-	if action, ok := keyToFocusAction(event.Rune(), textViewsLength); ok {
+	if action, ok := keyToFocusAction(event.Rune(), viewsLength); ok {
 		a.tviewApp.SetFocus(a.views[action].textView)
+	}
+
+	focusedViewIndex := a.focusedViewIndex()
+	if focusedViewIndex != -1 {
+		if output, err := keyToCommandAction(event.Rune(), a.config.Panes[focusedViewIndex].Commands); err == nil &&
+			output != nil {
+			a.views[a.focusedViewIndex()].textView.Write(output)
+		}
 	}
 
 	return event
