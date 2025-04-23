@@ -53,8 +53,6 @@ func (a *App) runUserCommand(dir string, userCmd string, view *AppView) {
 		log.Panicln("Error starting command:", err)
 	}
 
-	view.processId = cmd.Process.Pid
-
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
@@ -136,8 +134,7 @@ func (a *App) getRootView() *tview.Pages {
 		})
 
 		a.views[index] = &AppView{
-			textView:  tv,
-			processId: 0,
+			textView: tv,
 		}
 
 		a.runUserCommand(pane.Dir, pane.Start, a.views[index])
