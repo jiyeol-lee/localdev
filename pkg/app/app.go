@@ -88,6 +88,7 @@ func (a *App) StopPanes() {
 					processId,
 					reset,
 				)
+				// -processId is serving as a process group identifier in this kill operation
 				err := syscall.Kill(-processId, syscall.SIGKILL)
 				if err != nil {
 					fmt.Printf(
