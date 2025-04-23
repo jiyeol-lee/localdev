@@ -4,9 +4,9 @@ import (
 	"bufio"
 	"fmt"
 	"io"
-	"os"
 	"os/exec"
 	"sync"
+	"syscall"
 
 	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/rivo/tview"
@@ -82,24 +82,14 @@ func (a *App) StopPanes() {
 					return
 				}
 				fmt.Printf(
-					"%s[%s] Killing process with PID %d...%s\n",
+					"%s[%s] Killing process by PID, including its spawned children: %d%s\n",
 					color,
 					pane.Name,
 					processId,
 					reset,
 				)
-				process, err := os.FindProcess(processId)
+				err := syscall.Kill(-processId, syscall.SIGKILL)
 				if err != nil {
-					fmt.Printf(
-						"%s[%s] ❌ Failed to find process: %v%s\n",
-						color,
-						pane.Name,
-						err,
-						reset,
-					)
-					return
-				}
-				if err := process.Kill(); err != nil {
 					fmt.Printf(
 						"%s[%s] ❌ Failed to kill process: %v%s\n",
 						color,
@@ -107,9 +97,15 @@ func (a *App) StopPanes() {
 						err,
 						reset,
 					)
-				} else {
-					fmt.Printf("%s[%s] ✅ Successfully killed process with PID %d%s\n", color, pane.Name, processId, reset)
+					return
 				}
+				fmt.Printf(
+					"%s[%s] ✅ Successfully killed process by PID, including its spawned children %d%s\n",
+					color,
+					pane.Name,
+					processId,
+					reset,
+				)
 				return
 			}
 

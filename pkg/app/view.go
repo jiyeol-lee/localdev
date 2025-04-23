@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os/exec"
+	"syscall"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/command"
@@ -45,6 +46,7 @@ func makeFlexibleSlice(size int) []int {
 func (a *App) runUserCommand(dir string, userCmd string, view *AppView) {
 	cmd := exec.Command("sh", "-c", userCmd)
 	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, _ := cmd.StdoutPipe()
 	stderr, _ := cmd.StderrPipe()
