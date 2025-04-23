@@ -146,7 +146,22 @@ func (a *App) getRootView() *tview.Pages {
 			row++
 		}
 	}
+	modal := func(p tview.Primitive) tview.Primitive {
+		return tview.NewGrid().
+			SetColumns(5, 0, 5).
+			SetRows(2, 0, 2).
+			AddItem(p, 1, 1, 1, 1, 0, 0, true)
+	}
+	textView := tview.NewTextView()
+
+	textView.
+		SetBorder(true).
+		SetTitle("Centered Text View")
+
+	textView.Write([]byte("This is a centered text view.\n"))
+
 	root.AddPage(constant.Page.MainPage, grid, true, true)
+	root.AddPage(constant.Page.ModalPage, modal(textView), true, true)
 
 	return root
 }

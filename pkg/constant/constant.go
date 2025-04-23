@@ -1,9 +1,11 @@
 package constant
 
 var Page = struct {
-	MainPage string
+	MainPage  string
+	ModalPage string
 }{
-	MainPage: "main",
+	MainPage:  "main",
+	ModalPage: "modal",
 }
 
 var ReservedCommand = struct {
