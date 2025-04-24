@@ -1,4 +1,4 @@
-package app
+package view
 
 import (
 	"fmt"
@@ -6,6 +6,7 @@ import (
 	"reflect"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/jiyeol-lee/localdev/pkg/config"
 )
 
 // keyToFocusAction maps key inputs to focus actions for text views.
@@ -37,7 +38,7 @@ func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
 }
 
 // keyToCommandAction maps key inputs to command actions defined in the configuration.
-func keyToCommandAction(key rune, configCommands *ConfigCommands) ([]byte, error) {
+func keyToCommandAction(key rune, configCommands *config.ConfigCommands) ([]byte, error) {
 	if configCommands == nil {
 		return nil, fmt.Errorf("configCommands is nil")
 	}
@@ -61,7 +62,7 @@ func keyToCommandAction(key rune, configCommands *ConfigCommands) ([]byte, error
 		return nil, fmt.Errorf("command not found for key: %c", key)
 	}
 
-	cmdStruct := field.Interface().(*ConfigCommand)
+	cmdStruct := field.Interface().(*config.ConfigCommand)
 	if cmdStruct == nil {
 		return nil, fmt.Errorf("command not found for key: %c", key)
 	}
@@ -79,9 +80,9 @@ func keyToCommandAction(key rune, configCommands *ConfigCommands) ([]byte, error
 	return output, nil
 }
 
-func (a *App) focusedViewIndex() int {
-	for i, view := range a.views {
-		if view.textView.HasFocus() {
+func (v *View) focusedViewIndex() int {
+	for i, pane := range v.panes {
+		if pane.textView.HasFocus() {
 			return i
 		}
 	}
@@ -90,20 +91,24 @@ func (a *App) focusedViewIndex() int {
 }
 
 // keyMapping handles key events for switching focus between text views.
-func (a *App) keyMapping(event *tcell.EventKey) *tcell.EventKey {
-	viewsLength := len(a.views)
+func (v *View) keyMapping(
+	configPanes []config.ConfigPane,
+) func(event *tcell.EventKey) *tcell.EventKey {
+	return func(event *tcell.EventKey) *tcell.EventKey {
+		panesLength := len(v.panes)
 
-	if action, ok := keyToFocusAction(event.Rune(), viewsLength); ok {
-		a.tviewApp.SetFocus(a.views[action].textView)
-	}
-
-	focusedViewIndex := a.focusedViewIndex()
-	if focusedViewIndex != -1 {
-		if output, err := keyToCommandAction(event.Rune(), a.config.Panes[focusedViewIndex].Commands); err == nil &&
-			output != nil {
-			a.views[a.focusedViewIndex()].textView.Write(output)
+		if action, ok := keyToFocusAction(event.Rune(), panesLength); ok {
+			v.tviewApp.SetFocus(v.panes[action].textView)
 		}
-	}
 
-	return event
+		focusedViewIndex := v.focusedViewIndex()
+		if focusedViewIndex != -1 {
+			if output, err := keyToCommandAction(event.Rune(), configPanes[focusedViewIndex].Commands); err == nil &&
+				output != nil {
+				// a.views[a.focusedViewIndex()].textView.Write(output)
+			}
+		}
+
+		return event
+	}
 }

@@ -1,4 +1,4 @@
-package app
+package view
 
 import (
 	"bufio"
@@ -8,9 +8,24 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/command"
+	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/rivo/tview"
 )
+
+type Pane struct {
+	textView *tview.TextView
+}
+
+type View struct {
+	tviewApp   *tview.Application
+	tviewPages *tview.Pages
+	panes      []*Pane
+}
+
+func (v *View) EnableMouse(enable bool) {
+	v.tviewApp.EnableMouse(enable)
+}
 
 // getGridDimensions calculates the number of rows and columns for the grid layout
 func getGridDimensions(length int) (rows, cols int) {
@@ -42,7 +57,7 @@ func makeFlexibleSlice(size int) []int {
 }
 
 // runUserCommand executes a user-defined command in a new process and captures its output
-func (a *App) runUserCommand(dir string, userCmd string, view *AppView) {
+func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextView) {
 	cmd := exec.Command("sh", "-c", userCmd)
 	cmd.Dir = dir
 
@@ -56,9 +71,9 @@ func (a *App) runUserCommand(dir string, userCmd string, view *AppView) {
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			line := scanner.Text()
-			a.tviewApp.QueueUpdateDraw(func() {
-				view.textView.Write([]byte(line + "\n"))
+			t := scanner.Text()
+			v.tviewApp.QueueUpdateDraw(func() {
+				textView.Write([]byte(t + "\n"))
 			})
 		}
 	}()
@@ -66,16 +81,16 @@ func (a *App) runUserCommand(dir string, userCmd string, view *AppView) {
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			line := scanner.Text()
-			a.tviewApp.QueueUpdateDraw(func() {
-				view.textView.Write([]byte("[#8B4513]" + line + "[white]\n"))
+			t := scanner.Text()
+			v.tviewApp.QueueUpdateDraw(func() {
+				textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
 			})
 		}
 	}()
 }
 
 // getPaneTitle generates the title for each pane in the grid
-func getPaneTitle(paneIndex int, pane ConfigPane, focused bool) string {
+func getPaneTitle(paneIndex int, pane config.ConfigPane, focused bool) string {
 	branch, err := command.GetCurrentBranch(pane.Dir)
 	branchInfo := branch
 	// if git is not initialized, it will return an error
@@ -99,26 +114,34 @@ func getPaneTitle(paneIndex int, pane ConfigPane, focused bool) string {
 	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, pane.Name, branchInfo)
 }
 
-// getRootView creates the root view for the application
-func (a *App) getRootView() *tview.Pages {
-	l := len(a.config.Panes)
-	a.views = make([]*AppView, l)
-	rows, cols := getGridDimensions(l)
+func (v *View) Run(configPanes []config.ConfigPane) error {
+	v.tviewApp = tview.NewApplication()
+	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping(configPanes))
+	v.tviewPages = v.getRootView(configPanes)
+	v.tviewApp.SetRoot(v.tviewPages, true)
+	if err := v.tviewApp.Run(); err != nil {
+		return fmt.Errorf("error running app: %w", err)
+	}
+	return nil
+}
 
+func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 	root := tview.NewPages()
+	l := len(configPanes)
+	v.panes = make([]*Pane, l)
+	rows, cols := getGridDimensions(l)
 	grid := tview.NewGrid()
 	grid.
 		SetRows(makeFlexibleSlice(rows)...).
 		SetColumns(makeFlexibleSlice(cols)...)
-
 	row := 0
 	col := 0
-	for index, pane := range a.config.Panes {
+	for index, pane := range configPanes {
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
 			SetScrollable(true).
 			SetChangedFunc(func() {
-				a.tviewApp.Draw()
+				v.tviewApp.Draw()
 			}).ScrollToEnd()
 		tv.
 			SetBorder(true).
@@ -133,11 +156,11 @@ func (a *App) getRootView() *tview.Pages {
 				SetTitle(getPaneTitle(index, pane, true))
 		})
 
-		a.views[index] = &AppView{
+		v.panes[index] = &Pane{
 			textView: tv,
 		}
 
-		a.runUserCommand(pane.Dir, pane.Start, a.views[index])
+		v.runUserCommand(pane.Dir, pane.Start, v.panes[index].textView)
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
 			row = 0
@@ -146,22 +169,35 @@ func (a *App) getRootView() *tview.Pages {
 			row++
 		}
 	}
-	modal := func(p tview.Primitive) tview.Primitive {
-		return tview.NewGrid().
-			SetColumns(5, 0, 5).
-			SetRows(2, 0, 2).
-			AddItem(p, 1, 1, 1, 1, 0, 0, true)
-	}
-	textView := tview.NewTextView()
-
-	textView.
-		SetBorder(true).
-		SetTitle("Centered Text View")
-
-	textView.Write([]byte("This is a centered text view.\n"))
-
 	root.AddPage(constant.Page.MainPage, grid, true, true)
-	root.AddPage(constant.Page.ModalPage, modal(textView), true, true)
 
 	return root
+}
+
+func (v *View) openCommandOutputModal() {
+	tv := tview.NewTextView()
+	inputF := tview.NewInputField().
+		SetFieldWidth(0).
+		SetFieldBackgroundColor(tcell.ColorBlack)
+	modal := func(p tview.Primitive) tview.Primitive {
+		inputF.
+			SetDoneFunc(func(key tcell.Key) {
+				if key == tcell.KeyEnter {
+					tv.Write([]byte(inputF.GetText() + "\n"))
+					inputF.SetText("")
+				}
+			}).SetBorder(true)
+
+		return tview.NewGrid().
+			SetColumns(0).
+			SetRows(0, 3).
+			AddItem(p, 0, 0, 1, 1, 0, 0, true).
+			AddItem(inputF, 1, 0, 1, 1, 0, 0, true)
+	}
+	tv.
+		SetBorder(true).
+		SetTitle("Command Output")
+
+	v.tviewPages.AddPage(constant.Page.CommandOutputModalPage, modal(tv), true, true)
+	v.tviewApp.SetFocus(inputF)
 }
