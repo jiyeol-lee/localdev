@@ -37,14 +37,9 @@ func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
 	}
 }
 
-// keyToCommandAction maps key inputs to command actions defined in the configuration.
-func keyToCommandAction(key rune, configCommands *config.ConfigCommands) ([]byte, error) {
-	if configCommands == nil {
-		return nil, fmt.Errorf("configCommands is nil")
-	}
-
+// keyToCommand maps key inputs to command actions defined in the configuration.
+func (v *View) keyToCommand(key rune, configPane config.ConfigPane) (string, error) {
 	fieldName := ""
-
 	if key >= 97 && key <= 122 {
 		fieldName = fmt.Sprintf("Lower%c", key-32)
 	} else if key >= 65 && key <= 90 {
@@ -52,32 +47,35 @@ func keyToCommandAction(key rune, configCommands *config.ConfigCommands) ([]byte
 	}
 
 	if fieldName == "" {
-		return nil, fmt.Errorf("invalid key: %c", key)
+		return "", fmt.Errorf("invalid key: %c", key)
 	}
 
-	v := reflect.ValueOf(configCommands).Elem()
-	field := v.FieldByName(fieldName)
+	if configPane.Commands == nil {
+		return "", fmt.Errorf("commands not found for key: %c", key)
+	}
+
+	vo := reflect.ValueOf(configPane.Commands).Elem()
+	field := vo.FieldByName(fieldName)
 
 	if !field.IsValid() || field.IsNil() {
-		return nil, fmt.Errorf("command not found for key: %c", key)
+		return "", fmt.Errorf("command not found for key: %c", key)
 	}
 
 	cmdStruct := field.Interface().(*config.ConfigCommand)
 	if cmdStruct == nil {
-		return nil, fmt.Errorf("command not found for key: %c", key)
-	}
-
-	cmd := exec.Command("sh", "-c", cmdStruct.Command)
-	output, err := cmd.Output()
-	if err != nil {
-		return nil, err
+		return "", fmt.Errorf("command not found for key: %c", key)
 	}
 
 	if cmdStruct.Silent {
-		return nil, nil
+		cmd := exec.Command("sh", "-c", cmdStruct.Command)
+		_, err := cmd.Output()
+		if err != nil {
+			return "", err
+		}
+		return "", nil
 	}
 
-	return output, nil
+	return cmdStruct.Command, nil
 }
 
 func (v *View) focusedViewIndex() int {
@@ -91,24 +89,30 @@ func (v *View) focusedViewIndex() int {
 }
 
 // keyMapping handles key events for switching focus between text views.
-func (v *View) keyMapping(
-	configPanes []config.ConfigPane,
-) func(event *tcell.EventKey) *tcell.EventKey {
-	return func(event *tcell.EventKey) *tcell.EventKey {
-		panesLength := len(v.panes)
+func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
+	panesLength := len(v.panes)
+	focusedViewIndex := v.focusedViewIndex()
 
+	if focusedViewIndex != -1 {
+		// handle pane focus switching when there is no modal focused
 		if action, ok := keyToFocusAction(event.Rune(), panesLength); ok {
 			v.tviewApp.SetFocus(v.panes[action].textView)
 		}
 
-		focusedViewIndex := v.focusedViewIndex()
-		if focusedViewIndex != -1 {
-			if output, err := keyToCommandAction(event.Rune(), configPanes[focusedViewIndex].Commands); err == nil &&
-				output != nil {
-				// a.views[a.focusedViewIndex()].textView.Write(output)
+		if command, err := v.keyToCommand(event.Rune(), v.panes[focusedViewIndex].config); err == nil &&
+			command != "" {
+			if !v.checkIsCommandOutputModalOpen() {
+				v.commandOutputModal.callerPaneIndex = focusedViewIndex
+				v.commandOutputModal.inputField, v.commandOutputModal.textView = v.openCommandOutputModal()
+				v.commandOutputModal.appendCommandHistory(command)
+				v.runUserCommand(
+					v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+					command,
+					v.commandOutputModal.textView,
+				)
 			}
 		}
-
-		return event
 	}
+
+	return event
 }

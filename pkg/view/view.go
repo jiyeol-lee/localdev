@@ -15,16 +15,14 @@ import (
 
 type Pane struct {
 	textView *tview.TextView
+	config   config.ConfigPane
 }
 
 type View struct {
-	tviewApp   *tview.Application
-	tviewPages *tview.Pages
-	panes      []*Pane
-}
-
-func (v *View) EnableMouse(enable bool) {
-	v.tviewApp.EnableMouse(enable)
+	tviewApp           *tview.Application
+	tviewPages         *tview.Pages
+	panes              []*Pane
+	commandOutputModal *commandOutputModal
 }
 
 // getGridDimensions calculates the number of rows and columns for the grid layout
@@ -90,14 +88,14 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 }
 
 // getPaneTitle generates the title for each pane in the grid
-func getPaneTitle(paneIndex int, pane config.ConfigPane, focused bool) string {
-	branch, err := command.GetCurrentBranch(pane.Dir)
+func getPaneTitle(paneIndex int, configPane config.ConfigPane, focused bool) string {
+	branch, err := command.GetCurrentBranch(configPane.Dir)
 	branchInfo := branch
 	// if git is not initialized, it will return an error
 	if err != nil {
 		branchInfo = "N/A"
 	}
-	status, err := command.GetBranchSyncStatus(pane.Dir)
+	status, err := command.GetBranchSyncStatus(configPane.Dir)
 	// if git is not pushed to remote, it will return an error
 	if err == nil {
 		branchInfo += fmt.Sprintf(
@@ -108,17 +106,18 @@ func getPaneTitle(paneIndex int, pane config.ConfigPane, focused bool) string {
 	}
 
 	if focused {
-		return fmt.Sprintf("[green][%d] %s[white] - %s", paneIndex+1, pane.Name, branchInfo)
+		return fmt.Sprintf("[green][%d] %s[white] - %s", paneIndex+1, configPane.Name, branchInfo)
 	}
 
-	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, pane.Name, branchInfo)
+	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, configPane.Name, branchInfo)
 }
 
 func (v *View) Run(configPanes []config.ConfigPane) error {
 	v.tviewApp = tview.NewApplication()
-	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping(configPanes))
+	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
 	v.tviewPages = v.getRootView(configPanes)
 	v.tviewApp.SetRoot(v.tviewPages, true)
+	v.commandOutputModal = newCommandOutputModal()
 	if err := v.tviewApp.Run(); err != nil {
 		return fmt.Errorf("error running app: %w", err)
 	}
@@ -136,7 +135,7 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 		SetColumns(makeFlexibleSlice(cols)...)
 	row := 0
 	col := 0
-	for index, pane := range configPanes {
+	for index, configPane := range configPanes {
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
 			SetScrollable(true).
@@ -145,22 +144,23 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 			}).ScrollToEnd()
 		tv.
 			SetBorder(true).
-			SetTitle(getPaneTitle(index, pane, tv.HasFocus()))
+			SetTitle(getPaneTitle(index, configPane, tv.HasFocus()))
 
 		tv.SetBlurFunc(func() {
 			tv.SetBorderColor(tcell.ColorWhite).
-				SetTitle(getPaneTitle(index, pane, false))
+				SetTitle(getPaneTitle(index, configPane, false))
 		})
 		tv.SetFocusFunc(func() {
 			tv.SetBorderColor(tcell.ColorGreen).
-				SetTitle(getPaneTitle(index, pane, true))
+				SetTitle(getPaneTitle(index, configPane, true))
 		})
 
 		v.panes[index] = &Pane{
 			textView: tv,
+			config:   configPane,
 		}
 
-		v.runUserCommand(pane.Dir, pane.Start, v.panes[index].textView)
+		v.runUserCommand(configPane.Dir, configPane.Start, v.panes[index].textView)
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
 			row = 0
@@ -174,30 +174,87 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 	return root
 }
 
-func (v *View) openCommandOutputModal() {
-	tv := tview.NewTextView()
-	inputF := tview.NewInputField().
+func (v *View) checkIsCommandOutputModalOpen() bool {
+	return v.tviewPages.HasPage(constant.Page.CommandOutputModalPage)
+}
+
+func (v *View) removeCommandOutputModal() {
+	v.tviewPages.RemovePage(constant.Page.CommandOutputModalPage)
+	v.commandOutputModal.reset()
+}
+
+func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
+	textView := tview.NewTextView().ScrollToEnd()
+	inputField := tview.NewInputField().
 		SetFieldWidth(0).
 		SetFieldBackgroundColor(tcell.ColorBlack)
 	modal := func(p tview.Primitive) tview.Primitive {
-		inputF.
-			SetDoneFunc(func(key tcell.Key) {
-				if key == tcell.KeyEnter {
-					tv.Write([]byte(inputF.GetText() + "\n"))
-					inputF.SetText("")
-				}
-			}).SetBorder(true)
-
 		return tview.NewGrid().
 			SetColumns(0).
 			SetRows(0, 3).
 			AddItem(p, 0, 0, 1, 1, 0, 0, true).
-			AddItem(inputF, 1, 0, 1, 1, 0, 0, true)
+			AddItem(inputField, 1, 0, 1, 1, 0, 0, true)
 	}
-	tv.
+	textView.
 		SetBorder(true).
-		SetTitle("Command Output")
+		SetTitle("Command Output").
+		SetMouseCapture(
+			func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+				if action == tview.MouseScrollUp || action == tview.MouseScrollDown {
+					return action, event
+				}
 
-	v.tviewPages.AddPage(constant.Page.CommandOutputModalPage, modal(tv), true, true)
-	v.tviewApp.SetFocus(inputF)
+				return tview.MouseConsumed, nil
+			},
+		)
+	inputField.
+		SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			switch event.Key() {
+			case tcell.KeyEsc:
+				v.removeCommandOutputModal()
+				v.tviewApp.SetFocus(v.panes[v.commandOutputModal.callerPaneIndex].textView)
+				return nil
+
+			case tcell.KeyUp:
+				pc := v.commandOutputModal.previousCommand()
+				if pc != "" {
+					inputField.SetText(pc)
+				}
+				return nil
+
+			case tcell.KeyDown:
+				nc := v.commandOutputModal.nextCommand()
+				if nc != "" {
+					inputField.SetText(nc)
+				}
+				return nil
+
+			case tcell.KeyLeft:
+			case tcell.KeyRight:
+				break
+
+			case tcell.KeyEnter:
+				command := inputField.GetText()
+				{
+					v.commandOutputModal.appendCommandHistory(command)
+					v.commandOutputModal.resetCommandHistoryIndex()
+					v.runUserCommand(
+						v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+						command,
+						v.commandOutputModal.textView,
+					)
+					inputField.SetText("")
+				}
+
+			default:
+				v.commandOutputModal.resetCommandHistoryIndex()
+				break
+			}
+
+			return event
+		}).SetBorder(true)
+	v.tviewPages.AddPage(constant.Page.CommandOutputModalPage, modal(textView), true, true)
+	v.tviewApp.SetFocus(inputField)
+
+	return inputField, textView
 }
