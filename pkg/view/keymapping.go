@@ -3,10 +3,10 @@ package view
 import (
 	"fmt"
 	"os/exec"
-	"reflect"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/config"
+	"github.com/jiyeol-lee/localdev/pkg/util"
 )
 
 // keyToFocusAction maps key inputs to focus actions for text views.
@@ -38,44 +38,51 @@ func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
 }
 
 // keyToCommand maps key inputs to command actions defined in the configuration.
-func (v *View) keyToCommand(key rune, configPane config.ConfigPane) (string, error) {
-	fieldName := ""
-	if key >= 97 && key <= 122 {
-		fieldName = fmt.Sprintf("Lower%c", key-32)
-	} else if key >= 65 && key <= 90 {
-		fieldName = fmt.Sprintf("Upper%c", key)
-	}
-
-	if fieldName == "" {
-		return "", fmt.Errorf("invalid key: %c", key)
-	}
-
+func (v *View) keyToCommand(keyRune rune, configPane config.ConfigPane) (string, bool, error) {
 	if configPane.Commands == nil {
-		return "", fmt.Errorf("commands not found for key: %c", key)
+		return "", false, fmt.Errorf("no commands defined for pane: %s", configPane.Name)
 	}
 
-	vo := reflect.ValueOf(configPane.Commands).Elem()
-	field := vo.FieldByName(fieldName)
-
-	if !field.IsValid() || field.IsNil() {
-		return "", fmt.Errorf("command not found for key: %c", key)
+	keyName := ""
+	if keyRune >= 97 && keyRune <= 122 {
+		keyName = fmt.Sprintf("lower%c", keyRune-32)
+	} else if keyRune >= 65 && keyRune <= 90 {
+		keyName = fmt.Sprintf("upper%c", keyRune)
+	}
+	if keyName == "" {
+		return "", false, fmt.Errorf("invalid keyRune: %c", keyRune)
 	}
 
-	cmdStruct := field.Interface().(*config.ConfigCommand)
-	if cmdStruct == nil {
-		return "", fmt.Errorf("command not found for key: %c", key)
+	paneCommandsMap, error := util.JsonToMap[*config.ConfigCommands, *config.ConfigCommand](
+		configPane.Commands,
+	)
+	if error != nil {
+		return "", false, error
 	}
 
-	if cmdStruct.Silent {
-		cmd := exec.Command("sh", "-c", cmdStruct.Command)
-		_, err := cmd.Output()
-		if err != nil {
-			return "", err
+	var configCommand *config.ConfigCommand
+	for k, cc := range paneCommandsMap {
+		if k == keyName {
+			configCommand = cc
+			break
 		}
-		return "", nil
 	}
 
-	return cmdStruct.Command, nil
+	if configCommand == nil {
+		return "", false, fmt.Errorf("no command found for key: %s", keyName)
+	}
+
+	if configCommand.Silent {
+		cmd := exec.Command("sh", "-c", configCommand.Command)
+		cmd.Dir = configPane.Dir
+		err := cmd.Start()
+		if err != nil {
+			return "", false, err
+		}
+		return "", false, nil
+	}
+
+	return configCommand.Command, configCommand.AutoExecute, nil
 }
 
 func (v *View) focusedViewIndex() int {
@@ -100,7 +107,7 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 		}
 
 		if event.Rune() == 63 {
-			if !v.checkIsCommandHelpModalOpen() {
+			if !v.checkIsCommandHelpModalOpen() && !v.checkIsCommandOutputModalOpen() {
 				v.commandHelpModal.callerPaneIndex = focusedViewIndex
 				v.commandHelpModal.textView = v.openCommandHelpModal()
 				v.setCommandHelpModalBodyText()
@@ -108,17 +115,21 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 			return event
 		}
 
-		if command, err := v.keyToCommand(event.Rune(), v.panes[focusedViewIndex].config); err == nil &&
+		if command, autoExecute, err := v.keyToCommand(event.Rune(), v.panes[focusedViewIndex].config); err == nil &&
 			command != "" {
-			if !v.checkIsCommandOutputModalOpen() {
+			if !v.checkIsCommandHelpModalOpen() && !v.checkIsCommandOutputModalOpen() {
 				v.commandOutputModal.callerPaneIndex = focusedViewIndex
 				v.commandOutputModal.inputField, v.commandOutputModal.textView = v.openCommandOutputModal()
 				v.commandOutputModal.appendCommandHistory(command)
-				v.runUserCommand(
-					v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
-					command,
-					v.commandOutputModal.textView,
-				)
+				if autoExecute {
+					v.runUserCommand(
+						v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+						command,
+						v.commandOutputModal.textView,
+					)
+				} else {
+					v.commandOutputModal.inputField.SetText(command)
+				}
 			}
 		}
 	}

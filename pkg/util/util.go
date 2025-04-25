@@ -2,7 +2,7 @@ package util
 
 import "encoding/json"
 
-func StructToMap[T any, V any](data T) (map[string]V, error) {
+func JsonToMap[T any, V any](data T) (map[string]V, error) {
 	jsonData, err := json.Marshal(data)
 	if err != nil {
 		return nil, err

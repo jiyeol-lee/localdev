@@ -223,8 +223,9 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 		SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			switch event.Key() {
 			case tcell.KeyEsc:
+				callerPaneTextView := v.panes[v.commandOutputModal.callerPaneIndex].textView
 				v.removeCommandOutputModal()
-				v.tviewApp.SetFocus(v.panes[v.commandOutputModal.callerPaneIndex].textView)
+				v.tviewApp.SetFocus(callerPaneTextView)
 				return nil
 
 			case tcell.KeyUp:
@@ -266,7 +267,6 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 			return event
 		}).SetBorder(true)
 	v.tviewPages.AddPage(constant.Page.CommandOutputModalPage, modal(textView), true, true)
-	v.tviewApp.SetFocus(inputField)
 
 	return inputField, textView
 }
@@ -304,8 +304,9 @@ func (v *View) openCommandHelpModal() *tview.TextView {
 		SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			switch event.Key() {
 			case tcell.KeyEsc:
+				callerPaneTextView := v.panes[v.commandHelpModal.callerPaneIndex].textView
 				v.removeCommandHelpModal()
-				v.tviewApp.SetFocus(v.panes[v.commandHelpModal.callerPaneIndex].textView)
+				v.tviewApp.SetFocus(callerPaneTextView)
 			}
 			return nil
 		})
@@ -328,7 +329,7 @@ func (v *View) setCommandHelpModalBodyText() {
 		tv.Write(fmt.Appendf(nil, "  No commands available\n"))
 		return
 	}
-	paneCommandsMap, error := util.StructToMap[*config.ConfigCommands, *config.ConfigCommand](
+	paneCommandsMap, error := util.JsonToMap[*config.ConfigCommands, *config.ConfigCommand](
 		paneCommands,
 	)
 	if error != nil {
