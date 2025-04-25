@@ -2,7 +2,7 @@ package view
 
 import "testing"
 
-func Test_convertCommandKeyToCharater(t *testing.T) {
+func Test_convertCommandKeyToCharacter(t *testing.T) {
 	type args struct {
 		key string
 	}
@@ -55,13 +55,13 @@ func Test_convertCommandKeyToCharater(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			got, err := convertCommandKeyToCharater(tt.args.key)
+			got, err := convertCommandKeyToCharacter(tt.args.key)
 			if (err != nil) != tt.wantErr {
-				t.Errorf("convertCommandKeyToCharater() error = %v, wantErr %v", err, tt.wantErr)
+				t.Errorf("convertCommandKeyToCharacter() error = %v, wantErr %v", err, tt.wantErr)
 				return
 			}
 			if got != tt.want {
-				t.Errorf("convertCommandKeyToCharater() = %v, want %v", got, tt.want)
+				t.Errorf("convertCommandKeyToCharacter() = %v, want %v", got, tt.want)
 			}
 		})
 	}

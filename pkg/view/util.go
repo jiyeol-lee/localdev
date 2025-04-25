@@ -5,8 +5,8 @@ import (
 	"strings"
 )
 
-// convertCommandKeyToCharater converts a key string to its corresponding character.
-func convertCommandKeyToCharater(key string) (string, error) {
+// convertCommandKeyToCharacter converts a key string to its corresponding character.
+func convertCommandKeyToCharacter(key string) (string, error) {
 	if strings.HasPrefix(key, "lower") && len(key) == 6 {
 		return strings.ToLower(string(key[5])), nil
 	}

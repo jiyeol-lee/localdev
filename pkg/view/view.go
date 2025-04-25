@@ -338,7 +338,7 @@ func (v *View) setCommandHelpModalBodyText() {
 	}
 
 	for key, configCommand := range paneCommandsMap {
-		c, err := convertCommandKeyToCharater(key)
+		c, err := convertCommandKeyToCharacter(key)
 		if err != nil {
 			tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
 			continue
