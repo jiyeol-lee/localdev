@@ -99,6 +99,15 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 			v.tviewApp.SetFocus(v.panes[action].textView)
 		}
 
+		if event.Rune() == 63 {
+			if !v.checkIsCommandHelpModalOpen() {
+				v.commandHelpModal.callerPaneIndex = focusedViewIndex
+				v.commandHelpModal.textView = v.openCommandHelpModal()
+				v.setCommandHelpModalBodyText()
+			}
+			return event
+		}
+
 		if command, err := v.keyToCommand(event.Rune(), v.panes[focusedViewIndex].config); err == nil &&
 			command != "" {
 			if !v.checkIsCommandOutputModalOpen() {

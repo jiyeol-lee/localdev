@@ -10,6 +10,7 @@ import (
 	"github.com/jiyeol-lee/localdev/pkg/command"
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
+	"github.com/jiyeol-lee/localdev/pkg/util"
 	"github.com/rivo/tview"
 )
 
@@ -23,6 +24,7 @@ type View struct {
 	tviewPages         *tview.Pages
 	panes              []*Pane
 	commandOutputModal *commandOutputModal
+	commandHelpModal   *commandHelpModal
 }
 
 // getGridDimensions calculates the number of rows and columns for the grid layout
@@ -118,6 +120,7 @@ func (v *View) Run(configPanes []config.ConfigPane) error {
 	v.tviewPages = v.getRootView(configPanes)
 	v.tviewApp.SetRoot(v.tviewPages, true)
 	v.commandOutputModal = newCommandOutputModal()
+	v.commandHelpModal = newCommandHelpModal()
 	if err := v.tviewApp.Run(); err != nil {
 		return fmt.Errorf("error running app: %w", err)
 	}
@@ -178,13 +181,22 @@ func (v *View) checkIsCommandOutputModalOpen() bool {
 	return v.tviewPages.HasPage(constant.Page.CommandOutputModalPage)
 }
 
+func (v *View) checkIsCommandHelpModalOpen() bool {
+	return v.tviewPages.HasPage(constant.Page.CommandHelpModalPage)
+}
+
 func (v *View) removeCommandOutputModal() {
 	v.tviewPages.RemovePage(constant.Page.CommandOutputModalPage)
 	v.commandOutputModal.reset()
 }
 
+func (v *View) removeCommandHelpModal() {
+	v.tviewPages.RemovePage(constant.Page.CommandHelpModalPage)
+	v.commandHelpModal.reset()
+}
+
 func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
-	textView := tview.NewTextView().ScrollToEnd()
+	textView := tview.NewTextView().ScrollToEnd().SetDynamicColors(true)
 	inputField := tview.NewInputField().
 		SetFieldWidth(0).
 		SetFieldBackgroundColor(tcell.ColorBlack)
@@ -192,7 +204,7 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 		return tview.NewGrid().
 			SetColumns(0).
 			SetRows(0, 3).
-			AddItem(p, 0, 0, 1, 1, 0, 0, true).
+			AddItem(p, 0, 0, 1, 1, 0, 0, false).
 			AddItem(inputField, 1, 0, 1, 1, 0, 0, true)
 	}
 	textView.
@@ -257,4 +269,85 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 	v.tviewApp.SetFocus(inputField)
 
 	return inputField, textView
+}
+
+func (v *View) openCommandHelpModal() *tview.TextView {
+	textView := tview.NewTextView().ScrollToEnd().SetDynamicColors(true)
+	modal := func(p tview.Primitive) *tview.Grid {
+		g := tview.NewGrid()
+
+		g.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
+			if width > 90 {
+				g.SetColumns(0, 80, 0)
+			} else {
+				g.SetColumns(2, 0, 2)
+			}
+			return x, y, width, height
+		})
+
+		return g.
+			SetRows(2, 0, 2).
+			AddItem(p, 1, 1, 1, 1, 0, 0, true)
+	}
+	textView.
+		SetBorder(true).
+		SetTitle("Command Help").
+		SetMouseCapture(
+			func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+				if action == tview.MouseScrollUp || action == tview.MouseScrollDown {
+					return action, event
+				}
+
+				return tview.MouseConsumed, nil
+			},
+		).
+		SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
+			switch event.Key() {
+			case tcell.KeyEsc:
+				v.removeCommandHelpModal()
+				v.tviewApp.SetFocus(v.panes[v.commandHelpModal.callerPaneIndex].textView)
+			}
+			return nil
+		})
+
+	v.tviewPages.AddPage(constant.Page.CommandHelpModalPage, modal(textView), true, true)
+
+	return textView
+}
+
+func (v *View) setCommandHelpModalBodyText() {
+	tv := v.commandHelpModal.textView
+
+	tv.Clear()
+	tv.Write([]byte(fmt.Appendf(nil, "\n  [orange]===%s===[-]\n\n", "Local")))
+	tv.Write([]byte(fmt.Appendf(nil, "  [lightgreen]Silent[-] command\n")))
+	tv.Write([]byte(fmt.Appendf(nil, "  [green]Normal[-] command\n\n")))
+
+	paneCommands := v.panes[v.commandHelpModal.callerPaneIndex].config.Commands
+	if paneCommands == nil {
+		tv.Write(fmt.Appendf(nil, "  No commands available\n"))
+		return
+	}
+	paneCommandsMap, error := util.StructToMap[*config.ConfigCommands, *config.ConfigCommand](
+		paneCommands,
+	)
+	if error != nil {
+		tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", error))
+		return
+	}
+
+	for key, configCommand := range paneCommandsMap {
+		c, err := convertCommandKeyToCharater(key)
+		if err != nil {
+			tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
+			continue
+		}
+		if configCommand.Silent {
+			tv.Write(
+				fmt.Appendf(nil, "  [lightgreen]%s[white] %s\n", c, configCommand.Description),
+			)
+		} else {
+			tv.Write(fmt.Appendf(nil, "  [green]%s[white] %s\n", c, configCommand.Description))
+		}
+	}
 }
