@@ -1,21 +1,10 @@
-package app
+package config
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 )
-
-type ConfigPane struct {
-	Name  string `json:"name"`
-	Dir   string `json:"dir"`
-	Start string `json:"start"`
-	Stop  string `json:"stop"`
-}
-
-type Config struct {
-	Panes []ConfigPane `json:"panes"`
-}
 
 // defaultConfigFile returns the default configuration file path.
 func defaultConfigFile() (string, error) {
@@ -31,7 +20,7 @@ func defaultConfigFile() (string, error) {
 }
 
 // loadConfig loads the configuration from the default config file.
-func (c *Config) loadConfig() error {
+func (c *Config) LoadConfig() error {
 	configFile, err := defaultConfigFile()
 	if err != nil {
 		return err
