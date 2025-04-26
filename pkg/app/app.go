@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"sync"
 
+	"github.com/jiyeol-lee/localdev/pkg/config"
+	"github.com/jiyeol-lee/localdev/pkg/view"
 	"github.com/rivo/tview"
 )
 
@@ -14,29 +16,23 @@ type AppView struct {
 	textView *tview.TextView
 }
 
-// App is the main application structure that holds the configuration and text views.
 type App struct {
-	tviewApp *tview.Application
-	config   *Config
-	views    []*AppView
+	view   *view.View
+	config *config.Config
 }
 
-// Run initializes the application, loads the configuration, and sets up the root view.
 func Run() (*App, error) {
 	a := &App{
-		tviewApp: tview.NewApplication(),
-		config:   &Config{},
+		view:   &view.View{},
+		config: &config.Config{},
 	}
-	a.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(a.keyMapping)
 
-	if err := a.config.loadConfig(); err != nil {
+	if err := a.config.LoadConfig(); err != nil {
 		return nil, fmt.Errorf("error loading config: %w", err)
 	}
 
-	root := a.getRootView()
-	a.tviewApp.SetRoot(root, true)
-	if err := a.tviewApp.Run(); err != nil {
-		return nil, fmt.Errorf("error running app: %w", err)
+	if err := a.view.Run(a.config.Panes); err != nil {
+		return nil, fmt.Errorf("error running view: %w", err)
 	}
 
 	return a, nil
