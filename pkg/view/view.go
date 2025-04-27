@@ -2,6 +2,7 @@ package view
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os/exec"
 
@@ -56,40 +57,57 @@ func makeFlexibleSlice(size int) []int {
 }
 
 // runUserCommand executes a user-defined command in a new process and captures its output
-func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextView) error {
-	cmd := exec.Command("sh", "-c", userCmd)
+func (v *View) runUserCommand(
+	ctx context.Context,
+	dir string,
+	userCmd string,
+	textView *tview.TextView,
+) error {
+	cmd := exec.CommandContext(ctx, "sh", "-c", userCmd)
 	cmd.Dir = dir
 
-	stdout, stdoutErr := cmd.StdoutPipe()
-	if stdoutErr != nil {
-		return fmt.Errorf("error getting stdout pipe: %w", stdoutErr)
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("error getting stdout pipe: %w", err)
 	}
-	stderr, stderrErr := cmd.StderrPipe()
-	if stderrErr != nil {
-		return fmt.Errorf("error getting stderr pipe: %w", stderrErr)
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("error getting stderr pipe: %w", err)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return fmt.Errorf("error starting command: %w", err)
 	}
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
-			t := scanner.Text()
-			v.tviewApp.QueueUpdate(func() {
-				textView.Write([]byte(t + "\n"))
-			})
+			select {
+			case <-ctx.Done():
+				return
+			default:
+
+				t := scanner.Text()
+				v.tviewApp.QueueUpdate(func() {
+					textView.Write([]byte(t + "\n"))
+				})
+			}
 		}
 	}()
 
 	go func() {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
-			t := scanner.Text()
-			v.tviewApp.QueueUpdate(func() {
-				textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
-			})
+			select {
+			case <-ctx.Done():
+				return
+			default:
+				t := scanner.Text()
+				v.tviewApp.QueueUpdate(func() {
+					textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
+				})
+
+			}
 		}
 	}()
 
@@ -161,7 +179,6 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 		tv.
 			SetBorder(true).
 			SetTitle(getPaneTitle(index, configPane, tv.HasFocus()))
-
 		tv.SetBlurFunc(func() {
 			tv.SetBorderColor(tcell.ColorWhite).
 				SetTitle(getPaneTitle(index, configPane, false))
