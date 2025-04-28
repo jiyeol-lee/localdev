@@ -1,6 +1,7 @@
 package main
 
 import (
+	"flag"
 	"fmt"
 	"log"
 
@@ -8,7 +9,10 @@ import (
 )
 
 func main() {
-	a, err := app.Run()
+	configFileName := flag.String("config", "config.json", "Path to config file")
+	flag.Parse()
+
+	a, err := app.Run(*configFileName)
 	if err != nil {
 		log.Fatalf("Error initializing app: %v", err)
 	}

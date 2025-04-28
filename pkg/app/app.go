@@ -21,13 +21,13 @@ type App struct {
 	config *config.Config
 }
 
-func Run() (*App, error) {
+func Run(configFileName string) (*App, error) {
 	a := &App{
 		view:   &view.View{},
 		config: &config.Config{},
 	}
 
-	if err := a.config.LoadConfig(); err != nil {
+	if err := a.config.LoadConfig(configFileName); err != nil {
 		return nil, fmt.Errorf("error loading config: %w", err)
 	}
 
