@@ -6,8 +6,8 @@ import (
 	"path/filepath"
 )
 
-// defaultConfigFile returns the default configuration file path.
-func defaultConfigFile() (string, error) {
+// defaultConfigFile constructs the default configuration file path using the provided configFileName.
+func defaultConfigFile(configFileName string) (string, error) {
 	configDir := os.Getenv("XDG_CONFIG_HOME")
 	if configDir == "" {
 		dir, err := os.UserConfigDir()
@@ -16,12 +16,13 @@ func defaultConfigFile() (string, error) {
 		}
 		configDir = dir
 	}
-	return filepath.Join(configDir, "localdev", "config.json"), nil
+	return filepath.Join(configDir, "localdev", configFileName), nil
 }
 
-// loadConfig loads the configuration from the default config file.
-func (c *Config) LoadConfig() error {
-	configFile, err := defaultConfigFile()
+// LoadConfig loads the configuration from the specified configuration file name.
+// A valid configFileName must be provided as an argument.
+func (c *Config) LoadConfig(configFileName string) error {
+	configFile, err := defaultConfigFile(configFileName)
 	if err != nil {
 		return err
 	}
