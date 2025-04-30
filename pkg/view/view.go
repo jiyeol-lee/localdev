@@ -3,7 +3,6 @@ package view
 import (
 	"bufio"
 	"fmt"
-	"log"
 	"os/exec"
 
 	"github.com/gdamore/tcell/v2"
@@ -57,7 +56,7 @@ func makeFlexibleSlice(size int) []int {
 }
 
 // runUserCommand executes a user-defined command in a new process and captures its output
-func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextView) {
+func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextView) error {
 	cmd := exec.Command("sh", "-c", userCmd)
 	cmd.Dir = dir
 
@@ -65,7 +64,7 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 	stderr, _ := cmd.StderrPipe()
 
 	if err := cmd.Start(); err != nil {
-		log.Panicln("Error starting command:", err)
+		return err
 	}
 
 	go func() {
@@ -87,6 +86,8 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 			})
 		}
 	}()
+
+	return nil
 }
 
 // getPaneTitle generates the title for each pane in the grid
@@ -118,6 +119,12 @@ func (v *View) Run(configPanes []config.ConfigPane) error {
 	v.tviewApp = tview.NewApplication()
 	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
 	v.tviewPages = v.getRootView(configPanes)
+	for _, pane := range v.panes {
+		err := v.runUserCommand(pane.config.Dir, pane.config.Start, pane.textView)
+		if err != nil {
+			return fmt.Errorf("error running command: %w", err)
+		}
+	}
 	v.tviewApp.SetRoot(v.tviewPages, true)
 	v.commandOutputModal = newCommandOutputModal()
 	v.commandHelpModal = newCommandHelpModal()
@@ -163,7 +170,6 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 			config:   configPane,
 		}
 
-		v.runUserCommand(configPane.Dir, configPane.Start, v.panes[index].textView)
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
 			row = 0
