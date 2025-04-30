@@ -60,8 +60,14 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 	cmd := exec.Command("sh", "-c", userCmd)
 	cmd.Dir = dir
 
-	stdout, _ := cmd.StdoutPipe()
-	stderr, _ := cmd.StderrPipe()
+	stdout, stdoutErr := cmd.StdoutPipe()
+	if stdoutErr != nil {
+		return fmt.Errorf("error getting stdout pipe: %w", stdoutErr)
+	}
+	stderr, stderrErr := cmd.StderrPipe()
+	if stderrErr != nil {
+		return fmt.Errorf("error getting stderr pipe: %w", stderrErr)
+	}
 
 	if err := cmd.Start(); err != nil {
 		return err
@@ -71,7 +77,7 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			t := scanner.Text()
-			v.tviewApp.QueueUpdateDraw(func() {
+			v.tviewApp.QueueUpdate(func() {
 				textView.Write([]byte(t + "\n"))
 			})
 		}
@@ -81,7 +87,7 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			t := scanner.Text()
-			v.tviewApp.QueueUpdateDraw(func() {
+			v.tviewApp.QueueUpdate(func() {
 				textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
 			})
 		}
@@ -254,16 +260,15 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 
 			case tcell.KeyEnter:
 				command := inputField.GetText()
-				{
-					v.commandOutputModal.appendCommandHistory(command)
-					v.commandOutputModal.resetCommandHistoryIndex()
-					v.runUserCommand(
-						v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
-						command,
-						v.commandOutputModal.textView,
-					)
-					inputField.SetText("")
-				}
+				v.commandOutputModal.appendCommandHistory(command)
+				v.commandOutputModal.resetCommandHistoryIndex()
+				v.runUserCommand(
+					v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+					command,
+					v.commandOutputModal.textView,
+				)
+				inputField.SetText("")
+				break
 
 			default:
 				v.commandOutputModal.resetCommandHistoryIndex()
