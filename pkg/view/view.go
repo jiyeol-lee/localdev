@@ -77,7 +77,7 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
 			t := scanner.Text()
-			v.tviewApp.QueueUpdateDraw(func() {
+			v.tviewApp.QueueUpdate(func() {
 				textView.Write([]byte(t + "\n"))
 			})
 		}
@@ -87,7 +87,7 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
 			t := scanner.Text()
-			v.tviewApp.QueueUpdateDraw(func() {
+			v.tviewApp.QueueUpdate(func() {
 				textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
 			})
 		}
