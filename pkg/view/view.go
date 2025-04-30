@@ -60,13 +60,13 @@ func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextVi
 	cmd := exec.Command("sh", "-c", userCmd)
 	cmd.Dir = dir
 
-	stdout, outputErr := cmd.StdoutPipe()
-	if outputErr != nil {
-		return fmt.Errorf("error getting stdout pipe: %w", outputErr)
+	stdout, stdoutErr := cmd.StdoutPipe()
+	if stdoutErr != nil {
+		return fmt.Errorf("error getting stdout pipe: %w", stdoutErr)
 	}
-	stderr, errErr := cmd.StderrPipe()
-	if errErr != nil {
-		return fmt.Errorf("error getting stderr pipe: %w", errErr)
+	stderr, stderrErr := cmd.StderrPipe()
+	if stderrErr != nil {
+		return fmt.Errorf("error getting stderr pipe: %w", stderrErr)
 	}
 
 	if err := cmd.Start(); err != nil {
