@@ -260,16 +260,15 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 
 			case tcell.KeyEnter:
 				command := inputField.GetText()
-				{
-					v.commandOutputModal.appendCommandHistory(command)
-					v.commandOutputModal.resetCommandHistoryIndex()
-					v.runUserCommand(
-						v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
-						command,
-						v.commandOutputModal.textView,
-					)
-					inputField.SetText("")
-				}
+				v.commandOutputModal.appendCommandHistory(command)
+				v.commandOutputModal.resetCommandHistoryIndex()
+				v.runUserCommand(
+					v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+					command,
+					v.commandOutputModal.textView,
+				)
+				inputField.SetText("")
+				break
 
 			default:
 				v.commandOutputModal.resetCommandHistoryIndex()
