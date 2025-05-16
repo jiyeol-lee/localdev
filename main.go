@@ -9,7 +9,7 @@ import (
 )
 
 func main() {
-	configFileName := flag.String("config", "config.json", "Path to config file")
+	configFileName := flag.String("config", "config.yml", "Path to config file")
 	flag.Parse()
 
 	a, err := app.Run(*configFileName)

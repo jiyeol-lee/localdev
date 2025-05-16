@@ -340,15 +340,18 @@ func (v *View) setCommandHelpModalBodyText() {
 		tv.Write(fmt.Appendf(nil, "  No commands available\n"))
 		return
 	}
-	paneCommandsMap, error := util.JsonToMap[*config.ConfigCommands, *config.ConfigCommand](
+	paneCommandsMap, err := util.YamlToMap[*config.ConfigCommands, *config.ConfigCommand](
 		paneCommands,
 	)
-	if error != nil {
-		tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", error))
+	if err != nil {
+		tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
 		return
 	}
 
 	for key, configCommand := range paneCommandsMap {
+		if configCommand == nil {
+			continue
+		}
 		c, err := convertCommandKeyToCharacter(key)
 		if err != nil {
 			tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
