@@ -53,7 +53,7 @@ func (v *View) keyToCommand(keyRune rune, configPane config.ConfigPane) (string,
 		return "", false, fmt.Errorf("invalid keyRune: %c", keyRune)
 	}
 
-	paneCommandsMap, error := util.JsonToMap[*config.ConfigCommands, *config.ConfigCommand](
+	paneCommandsMap, error := util.YamlToMap[*config.ConfigCommands, *config.ConfigCommand](
 		configPane.Commands,
 	)
 	if error != nil {
