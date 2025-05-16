@@ -1,9 +1,10 @@
 package config
 
 import (
-	"encoding/json"
 	"os"
 	"path/filepath"
+
+	"github.com/goccy/go-yaml"
 )
 
 // defaultConfigFile constructs the default configuration file path using the provided configFileName.
@@ -32,7 +33,7 @@ func (c *Config) LoadConfig(configFileName string) error {
 		return err
 	}
 
-	err = json.Unmarshal(file, c)
+	err = yaml.Unmarshal(file, c)
 	if err != nil {
 		return err
 	}

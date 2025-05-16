@@ -4,6 +4,7 @@ go 1.24.1
 
 require (
 	github.com/gdamore/tcell/v2 v2.8.1
+	github.com/goccy/go-yaml v1.17.1
 	github.com/rivo/tview v0.0.0-20250330220935-949945f8d922
 )
 
