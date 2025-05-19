@@ -43,19 +43,23 @@ func (c *Config) LoadConfig(configFileName string) error {
 	if len(c.Panes) == 0 {
 		return fmt.Errorf("configuration must contain at least one pane")
 	}
+	var validationErrors []string
 	for i, pane := range c.Panes {
 		if pane.Name == "" {
-			return fmt.Errorf("pane[%d] is missing required field: name", i)
+			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: name", i))
 		}
 		if pane.Dir == "" {
-			return fmt.Errorf("pane[%d] is missing required field: dir", i)
+			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: dir", i))
 		}
 		if pane.Start == "" {
-			return fmt.Errorf("pane[%d] is missing required field: start", i)
+			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: start", i))
 		}
 		if pane.Stop == "" {
-			return fmt.Errorf("pane[%d] is missing required field: stop", i)
+			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: stop", i))
 		}
+	}
+	if len(validationErrors) > 0 {
+		return fmt.Errorf("configuration validation errors:\n%s", strings.Join(validationErrors, "\n"))
 	}
 
 	return nil
