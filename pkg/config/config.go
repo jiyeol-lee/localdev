@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -46,20 +47,35 @@ func (c *Config) LoadConfig(configFileName string) error {
 	var validationErrors []string
 	for i, pane := range c.Panes {
 		if pane.Name == "" {
-			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: name", i))
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: name", i),
+			)
 		}
 		if pane.Dir == "" {
-			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: dir", i))
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: dir", i),
+			)
 		}
 		if pane.Start == "" {
-			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: start", i))
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: start", i),
+			)
 		}
 		if pane.Stop == "" {
-			validationErrors = append(validationErrors, fmt.Sprintf("pane[%d] is missing required field: stop", i))
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: stop", i),
+			)
 		}
 	}
 	if len(validationErrors) > 0 {
-		return fmt.Errorf("configuration validation errors:\n%s", strings.Join(validationErrors, "\n"))
+		return fmt.Errorf(
+			"configuration validation errors:\n%s",
+			strings.Join(validationErrors, "\n"),
+		)
 	}
 
 	return nil
