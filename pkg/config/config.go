@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 
@@ -36,6 +37,25 @@ func (c *Config) LoadConfig(configFileName string) error {
 	err = yaml.Unmarshal(file, c)
 	if err != nil {
 		return err
+	}
+
+	// Configuration validation: ensure at least one pane and required fields are present
+	if len(c.Panes) == 0 {
+		return fmt.Errorf("configuration must contain at least one pane")
+	}
+	for i, pane := range c.Panes {
+		if pane.Name == "" {
+			return fmt.Errorf("pane[%d] is missing required field: name", i)
+		}
+		if pane.Dir == "" {
+			return fmt.Errorf("pane[%d] is missing required field: dir", i)
+		}
+		if pane.Start == "" {
+			return fmt.Errorf("pane[%d] is missing required field: start", i)
+		}
+		if pane.Stop == "" {
+			return fmt.Errorf("pane[%d] is missing required field: stop", i)
+		}
 	}
 
 	return nil
