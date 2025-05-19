@@ -1,8 +1,10 @@
 package config
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -36,6 +38,44 @@ func (c *Config) LoadConfig(configFileName string) error {
 	err = yaml.Unmarshal(file, c)
 	if err != nil {
 		return err
+	}
+
+	// Configuration validation: ensure at least one pane and required fields are present
+	if len(c.Panes) == 0 {
+		return fmt.Errorf("configuration must contain at least one pane")
+	}
+	var validationErrors []string
+	for i, pane := range c.Panes {
+		if pane.Name == "" {
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: name", i),
+			)
+		}
+		if pane.Dir == "" {
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: dir", i),
+			)
+		}
+		if pane.Start == "" {
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: start", i),
+			)
+		}
+		if pane.Stop == "" {
+			validationErrors = append(
+				validationErrors,
+				fmt.Sprintf("pane[%d] is missing required field: stop", i),
+			)
+		}
+	}
+	if len(validationErrors) > 0 {
+		return fmt.Errorf(
+			"configuration validation errors:\n%s",
+			strings.Join(validationErrors, "\n"),
+		)
 	}
 
 	return nil
