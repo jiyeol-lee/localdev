@@ -243,7 +243,7 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 			SetScrollable(true).
 			SetChangedFunc(func() {
 				v.tviewApp.Draw()
-			}).ScrollToEnd()
+			}).ScrollToEnd().SetMaxLines(constant.MaxPaneOutputLines)
 		tv.
 			SetBorder(true).
 			SetTitle(getPaneTitle(index, configPane, tv.HasFocus()))
