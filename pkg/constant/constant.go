@@ -25,3 +25,5 @@ var AnsiColor = struct {
 	Green: "\033[32m",
 	Reset: "\033[0m",
 }
+
+var MaxPaneOutputLines = 500
