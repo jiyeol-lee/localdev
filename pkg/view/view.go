@@ -3,7 +3,9 @@ package view
 import (
 	"bufio"
 	"fmt"
+	"os"
 	"os/exec"
+	"regexp"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/command"
@@ -55,8 +57,92 @@ func makeFlexibleSlice(size int) []int {
 	return s
 }
 
-// runUserCommand executes a user-defined command in a new process and captures its output
-func (v *View) runUserCommand(dir string, userCmd string, textView *tview.TextView) error {
+// sanitizeForDisplay removes or escapes ANSI escape sequences from a string for safe display
+func sanitizeForDisplay(s string) string {
+	// Remove ANSI escape sequences
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	return ansiRegex.ReplaceAllString(s, "")
+}
+
+func (v *View) runCustomUserCommand(dir string, userCmd string) {
+	v.tviewApp.Suspend(func() {
+		shell := os.Getenv("SHELL")
+		if shell == "" {
+			shell = "/bin/sh" // Default to sh if SHELL is not set
+		}
+
+		cmd := exec.Command(shell, "-c", userCmd)
+		cmd.Dir = dir
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		// Sanitize the command for safe display
+		sanitizedCmd := sanitizeForDisplay(userCmd)
+
+		fmt.Printf(
+			"\n%s+%s Executing command from %s%s%s\n",
+			constant.AnsiColor.Green,
+			constant.AnsiColor.Reset,
+			constant.AnsiColor.Green,
+			v.panes[v.commandOutputModal.callerPaneIndex].config.Name,
+			constant.AnsiColor.Reset,
+		)
+		fmt.Printf(
+			"%s+%s Command is executed in %s%s%s\n",
+			constant.AnsiColor.Green,
+			constant.AnsiColor.Reset,
+			constant.AnsiColor.Green,
+			v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+			constant.AnsiColor.Reset,
+		)
+		fmt.Printf(
+			"%s+ %s -c %s%s\n\n",
+			constant.AnsiColor.Green,
+			shell,
+			sanitizedCmd, // Use sanitized version for display
+			constant.AnsiColor.Reset,
+		)
+		err := cmd.Run()
+		if err != nil {
+			fmt.Printf(
+				"%s%s: %s%s\n",
+				constant.AnsiColor.Red,
+				"Error running command",
+				err,
+				constant.AnsiColor.Reset,
+			)
+		}
+
+		flushInput()
+
+		// Wait for user input after command completes
+		fmt.Printf(
+			"\n%sPress Enter to return to the app...%s",
+			constant.AnsiColor.Green,
+			constant.AnsiColor.Reset,
+		)
+		var input string
+		for {
+			if _, err := fmt.Scanln(&input); err != nil {
+				// If the user presses Enter without typing anything, we can break the loop
+				if input == "" {
+					fmt.Printf(
+						"\n%s+ Returning to the app...%s\n",
+						constant.AnsiColor.Green,
+						constant.AnsiColor.Reset,
+					)
+					break
+				}
+			}
+			// If the user presses Enter after typing something, we can break the loop
+			break
+		}
+	})
+}
+
+// runPaneUserCommand executes a user-defined command in a new process and captures its output
+func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.TextView) error {
 	cmd := exec.Command("sh", "-c", userCmd)
 	cmd.Dir = dir
 
@@ -126,7 +212,7 @@ func (v *View) Run(configPanes []config.ConfigPane) error {
 	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
 	v.tviewPages = v.getRootView(configPanes)
 	for _, pane := range v.panes {
-		err := v.runUserCommand(pane.config.Dir, pane.config.Start, pane.textView)
+		err := v.runPaneUserCommand(pane.config.Dir, pane.config.Start, pane.textView)
 		if err != nil {
 			return fmt.Errorf("error running command: %w", err)
 		}
@@ -189,6 +275,22 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 	return root
 }
 
+func (v *View) disablePanesMouse() {
+	for _, pane := range v.panes {
+		pane.textView.SetMouseCapture(
+			func(_ tview.MouseAction, _ *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
+				return tview.MouseConsumed, nil
+			},
+		)
+	}
+}
+
+func (v *View) enablePanesMouse() {
+	for _, pane := range v.panes {
+		pane.textView.SetMouseCapture(nil)
+	}
+}
+
 func (v *View) checkIsCommandOutputModalOpen() bool {
 	return v.tviewPages.HasPage(constant.Page.CommandOutputModalPage)
 }
@@ -200,38 +302,20 @@ func (v *View) checkIsCommandHelpModalOpen() bool {
 func (v *View) removeCommandOutputModal() {
 	v.tviewPages.RemovePage(constant.Page.CommandOutputModalPage)
 	v.commandOutputModal.reset()
+	v.enablePanesMouse()
 }
 
 func (v *View) removeCommandHelpModal() {
 	v.tviewPages.RemovePage(constant.Page.CommandHelpModalPage)
 	v.commandHelpModal.reset()
+	v.enablePanesMouse()
 }
 
-func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
-	textView := tview.NewTextView().ScrollToEnd().SetDynamicColors(true)
+func (v *View) openCommandOutputModal() *tview.InputField {
 	inputField := tview.NewInputField().
 		SetFieldWidth(0).
 		SetFieldBackgroundColor(tcell.ColorBlack)
-	modal := func(p tview.Primitive) tview.Primitive {
-		return tview.NewGrid().
-			SetColumns(0).
-			SetRows(0, 3).
-			AddItem(p, 0, 0, 1, 1, 0, 0, false).
-			AddItem(inputField, 1, 0, 1, 1, 0, 0, true)
-	}
-	textView.
-		SetBorder(true).
-		SetTitle("Command Output").
-		SetMouseCapture(
-			func(action tview.MouseAction, event *tcell.EventMouse) (tview.MouseAction, *tcell.EventMouse) {
-				if action == tview.MouseScrollUp || action == tview.MouseScrollDown {
-					return action, event
-				}
-
-				return tview.MouseConsumed, nil
-			},
-		)
-	inputField.
+	inputField.SetTitle("Command to run").
 		SetInputCapture(func(event *tcell.EventKey) *tcell.EventKey {
 			switch event.Key() {
 			case tcell.KeyEsc:
@@ -262,10 +346,9 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 				command := inputField.GetText()
 				v.commandOutputModal.appendCommandHistory(command)
 				v.commandOutputModal.resetCommandHistoryIndex()
-				v.runUserCommand(
+				v.runCustomUserCommand(
 					v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
 					command,
-					v.commandOutputModal.textView,
 				)
 				inputField.SetText("")
 				break
@@ -277,16 +360,8 @@ func (v *View) openCommandOutputModal() (*tview.InputField, *tview.TextView) {
 
 			return event
 		}).SetBorder(true)
-	v.tviewPages.AddPage(constant.Page.CommandOutputModalPage, modal(textView), true, true)
-
-	return inputField, textView
-}
-
-func (v *View) openCommandHelpModal() *tview.TextView {
-	textView := tview.NewTextView().ScrollToEnd().SetDynamicColors(true)
 	modal := func(p tview.Primitive) *tview.Grid {
 		g := tview.NewGrid()
-
 		g.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
 			if width > 90 {
 				g.SetColumns(0, 80, 0)
@@ -297,9 +372,17 @@ func (v *View) openCommandHelpModal() *tview.TextView {
 		})
 
 		return g.
-			SetRows(2, 0, 2).
+			SetColumns(2, 0, 2).
+			SetRows(5, 3, 0).
 			AddItem(p, 1, 1, 1, 1, 0, 0, true)
 	}
+	v.tviewPages.AddPage(constant.Page.CommandOutputModalPage, modal(inputField), true, true)
+
+	return inputField
+}
+
+func (v *View) openCommandHelpModal() *tview.TextView {
+	textView := tview.NewTextView().ScrollToEnd().SetDynamicColors(true)
 	textView.
 		SetBorder(true).
 		SetTitle("Command Help").
@@ -321,6 +404,21 @@ func (v *View) openCommandHelpModal() *tview.TextView {
 			}
 			return nil
 		})
+	modal := func(p tview.Primitive) *tview.Grid {
+		g := tview.NewGrid()
+		g.SetDrawFunc(func(screen tcell.Screen, x, y, width, height int) (int, int, int, int) {
+			if width > 90 {
+				g.SetColumns(0, 80, 0)
+			} else {
+				g.SetColumns(2, 0, 2)
+			}
+			return x, y, width, height
+		})
+
+		return g.
+			SetRows(2, 0, 2).
+			AddItem(p, 1, 1, 1, 1, 0, 0, true)
+	}
 
 	v.tviewPages.AddPage(constant.Page.CommandHelpModalPage, modal(textView), true, true)
 
