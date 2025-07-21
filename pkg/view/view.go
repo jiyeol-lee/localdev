@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"regexp"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/command"
@@ -56,43 +57,81 @@ func makeFlexibleSlice(size int) []int {
 	return s
 }
 
+// sanitizeForDisplay removes or escapes ANSI escape sequences from a string for safe display
+func sanitizeForDisplay(s string) string {
+	// Remove ANSI escape sequences
+	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
+	return ansiRegex.ReplaceAllString(s, "")
+}
+
 func (v *View) runCustomUserCommand(dir string, userCmd string) {
 	v.tviewApp.Suspend(func() {
-		cmd := exec.Command(userCmd)
-		cmd.Dir = dir
-		cmd.Stdin = os.Stdin
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/sh" // Default to sh if SHELL is not set
 		}
 
+		cmd := exec.Command(shell, "-c", userCmd)
+		cmd.Dir = dir
+		cmd.Stdin = os.Stdin
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+
+		// Sanitize the command for safe display
+		sanitizedCmd := sanitizeForDisplay(userCmd)
+
 		fmt.Printf(
-			"\n\033[32m+\033[0m Executing command from \033[32m%s\033[0m\n",
+			"\n%s+%s Executing command from %s%s%s\n",
+			constant.AnsiColor.Green,
+			constant.AnsiColor.Reset,
+			constant.AnsiColor.Green,
 			v.panes[v.commandOutputModal.callerPaneIndex].config.Name,
+			constant.AnsiColor.Reset,
 		)
 		fmt.Printf(
-			"\033[32m+\033[0m Command is executed in \033[32m%s\033[0m\n",
+			"%s+%s Command is executed in %s%s%s\n",
+			constant.AnsiColor.Green,
+			constant.AnsiColor.Reset,
+			constant.AnsiColor.Green,
 			v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
+			constant.AnsiColor.Reset,
 		)
-		fmt.Printf("\033[32m+ %s -c %s\033[0m\n\n", shell, userCmd)
+		fmt.Printf(
+			"%s+ %s -c %s%s\n\n",
+			constant.AnsiColor.Green,
+			shell,
+			sanitizedCmd, // Use sanitized version for display
+			constant.AnsiColor.Reset,
+		)
 		err := cmd.Run()
 		if err != nil {
-			fmt.Printf("\033[31m%s: %s\033[0m\n", "Error running command", err)
+			fmt.Printf(
+				"%s%s: %s%s\n",
+				constant.AnsiColor.Red,
+				"Error running command",
+				err,
+				constant.AnsiColor.Reset,
+			)
 		}
 
 		flushInput()
 
 		// Wait for user input after command completes
-		fmt.Print("\n\033[32mPress Enter to return to the app...\033[0m")
+		fmt.Printf(
+			"\n%sPress Enter to return to the app...%s",
+			constant.AnsiColor.Green,
+			constant.AnsiColor.Reset,
+		)
 		var input string
 		for {
 			if _, err := fmt.Scanln(&input); err != nil {
 				// If the user presses Enter without typing anything, we can break the loop
 				if input == "" {
-					fmt.Println("\n\033[32m+ Returning to the app...\033[0m")
+					fmt.Printf(
+						"\n%s+ Returning to the app...%s\n",
+						constant.AnsiColor.Green,
+						constant.AnsiColor.Reset,
+					)
 					break
 				}
 			}

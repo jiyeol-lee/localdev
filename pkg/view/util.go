@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"os"
 	"strings"
-	"syscall"
 
+	"golang.org/x/sys/unix"
 	"golang.org/x/term"
 )
 
@@ -23,40 +23,44 @@ func convertCommandKeyToCharacter(key string) (string, error) {
 }
 
 // flushInput flushes any buffered input from the terminal.
-func flushInput() {
+func flushInput() error {
 	fd := int(os.Stdin.Fd())
 
 	// Get current terminal attributes
 	oldState, err := term.GetState(fd)
 	if err != nil {
-		return
+		return fmt.Errorf("failed to get terminal state: %w", err)
 	}
 
 	// Set terminal to raw mode temporarily
-	rawState, err := term.MakeRaw(fd)
+	_, err = term.MakeRaw(fd)
 	if err != nil {
-		return
+		return fmt.Errorf("failed to set terminal to raw mode: %w", err)
 	}
 
 	// Restore terminal state when done
 	defer term.Restore(fd, oldState)
 
 	// Set non-blocking mode and read/discard buffered input
-	err = syscall.SetNonblock(fd, true)
+	err = unix.SetNonblock(fd, true)
 	if err != nil {
-		term.Restore(fd, rawState) // Restore raw state first
-		return
+		return fmt.Errorf("failed to set non-blocking mode: %w", err)
 	}
 
 	// Read and discard all available input
 	buffer := make([]byte, 1024)
 	for {
-		_, err := syscall.Read(fd, buffer)
+		_, err := unix.Read(fd, buffer)
 		if err != nil {
 			break // No more data to read
 		}
 	}
 
 	// Restore blocking mode
-	syscall.SetNonblock(fd, false)
+	err = unix.SetNonblock(fd, false)
+	if err != nil {
+		return fmt.Errorf("failed to restore blocking mode: %w", err)
+	}
+
+	return nil
 }
