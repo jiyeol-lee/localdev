@@ -111,6 +111,7 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 				v.commandHelpModal.callerPaneIndex = focusedViewIndex
 				v.commandHelpModal.textView = v.openCommandHelpModal()
 				v.setCommandHelpModalBodyText()
+				v.disablePanesMouse()
 			}
 			return event
 		}
@@ -119,17 +120,17 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 			command != "" {
 			if !v.checkIsCommandHelpModalOpen() && !v.checkIsCommandOutputModalOpen() {
 				v.commandOutputModal.callerPaneIndex = focusedViewIndex
-				v.commandOutputModal.inputField, v.commandOutputModal.textView = v.openCommandOutputModal()
 				v.commandOutputModal.appendCommandHistory(command)
 				if autoExecute {
-					v.runUserCommand(
+					v.runCustomUserCommand(
 						v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
 						command,
-						v.commandOutputModal.textView,
 					)
 				} else {
+					v.commandOutputModal.inputField = v.openCommandOutputModal()
 					v.commandOutputModal.inputField.SetText(command)
 				}
+				v.disablePanesMouse()
 			}
 		}
 	}

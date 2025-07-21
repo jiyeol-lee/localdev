@@ -15,3 +15,13 @@ var ReservedCommand = struct {
 }{
 	KillProcess: "__KILL_PROCESS__",
 }
+
+var AnsiColor = struct {
+	Red   string
+	Green string
+	Reset string
+}{
+	Red:   "\033[31m",
+	Green: "\033[32m",
+	Reset: "\033[0m",
+}
