@@ -4,12 +4,15 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
+	"os/signal"
 	"sync"
 
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/view"
 	"github.com/rivo/tview"
+	"golang.org/x/sys/unix"
 )
 
 type AppView struct {
@@ -17,15 +20,18 @@ type AppView struct {
 }
 
 type App struct {
-	view   *view.View
-	config *config.Config
+	signalChan chan os.Signal
+	view       *view.View
+	config     *config.Config
 }
 
 func Run(configFileName string) (*App, error) {
 	a := &App{
-		view:   &view.View{},
-		config: &config.Config{},
+		signalChan: make(chan os.Signal, 1),
+		view:       &view.View{},
+		config:     &config.Config{},
 	}
+	signal.Notify(a.signalChan, unix.SIGINT, unix.SIGTERM)
 
 	if err := a.config.LoadConfig(configFileName); err != nil {
 		return nil, fmt.Errorf("error loading config: %w", err)
@@ -36,6 +42,13 @@ func Run(configFileName string) (*App, error) {
 	}
 
 	return a, nil
+}
+
+// StopSignalChan stops the signal channel and resets the signal handlers.
+func (a *App) StopSignalChan() {
+	signal.Stop(a.signalChan)
+	signal.Reset(unix.SIGINT, unix.SIGTERM)
+	close(a.signalChan)
 }
 
 // StopPanes stops all panes defined in the configuration.

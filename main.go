@@ -20,6 +20,7 @@ func main() {
 	// When app.Stop() is called, this will run afterward
 	defer func() {
 		fmt.Println("🛑 Stopping all panes...")
+		a.StopSignalChan()
 		a.StopPanes()
 		fmt.Println("✅ All panes stopped.")
 	}()
