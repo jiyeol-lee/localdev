@@ -2,10 +2,13 @@ package view
 
 import (
 	"bufio"
+	"context"
 	"fmt"
 	"os"
 	"os/exec"
+	"os/signal"
 	"regexp"
+	"syscall"
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/command"
@@ -66,16 +69,26 @@ func sanitizeForDisplay(s string) string {
 
 func (v *View) runCustomUserCommand(dir string, userCmd string) {
 	v.tviewApp.Suspend(func() {
+		sigCh := make(chan os.Signal, 1)
+		signal.Notify(sigCh, syscall.SIGINT)
+		defer func() {
+			signal.Stop(sigCh)
+			close(sigCh)
+		}()
+
 		shell := os.Getenv("SHELL")
 		if shell == "" {
 			shell = "/bin/sh" // Default to sh if SHELL is not set
 		}
 
-		cmd := exec.Command(shell, "-c", userCmd)
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, shell, "-c", userCmd)
 		cmd.Dir = dir
-		cmd.Stdin = os.Stdin
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
+		cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 		// Sanitize the command for safe display
 		sanitizedCmd := sanitizeForDisplay(userCmd)
@@ -103,17 +116,35 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 			sanitizedCmd, // Use sanitized version for display
 			constant.AnsiColor.Reset,
 		)
-		err := cmd.Run()
-		if err != nil {
+		if err := cmd.Start(); err != nil {
 			fmt.Printf(
-				"%s%s: %s%s\n",
+				"%sError starting command: %s%s\n",
 				constant.AnsiColor.Red,
-				"Error running command",
 				err,
 				constant.AnsiColor.Reset,
 			)
+			return
 		}
 
+		isCancelled := false
+		doneCh := make(chan error, 1)
+		go func() { doneCh <- cmd.Wait() }()
+	loop:
+		for {
+			select {
+			case err := <-doneCh:
+				if !isCancelled && err != nil {
+					fmt.Printf("%sError running command: %s%s\n", constant.AnsiColor.Red, err, constant.AnsiColor.Reset)
+				}
+				break loop
+			case <-sigCh:
+				isCancelled = true
+				cancel()
+			}
+		}
+
+		// Without this, all of the input from the user while the command is running will be passed to fmt.Scanln
+		// I do not know why this happens, but it does.
 		flushInput()
 
 		// Wait for user input after command completes
@@ -143,8 +174,13 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 
 // runPaneUserCommand executes a user-defined command in a new process and captures its output
 func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.TextView) error {
-	cmd := exec.Command("sh", "-c", userCmd)
+	shell := os.Getenv("SHELL")
+	if shell == "" {
+		shell = "/bin/sh" // Default to sh if SHELL is not set
+	}
+	cmd := exec.Command(shell, "-c", userCmd)
 	cmd.Dir = dir
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
 
 	stdout, stdoutErr := cmd.StdoutPipe()
 	if stdoutErr != nil {
