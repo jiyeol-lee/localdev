@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os/exec"
 	"strings"
+
+	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 )
 
 type BranchSyncStatus struct {
@@ -25,8 +27,9 @@ func GetCurrentBranch(dir string) (string, error) {
 
 // GetBranchSyncStatus returns the sync status of the current branch with its remote counterpart.
 func GetBranchSyncStatus(dir string) (*BranchSyncStatus, error) {
+	sh := shell.Current()
 	cmd := exec.Command(
-		"sh",
+		sh,
 		"-c",
 		`git rev-list --left-right --count origin/$(git rev-parse --abbrev-ref HEAD)...HEAD | awk '{printf("{ \"behind\": %s, \"ahead\": %s }\n", $1, $2)}'`,
 	)
