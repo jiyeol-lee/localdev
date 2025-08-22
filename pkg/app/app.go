@@ -8,6 +8,7 @@ import (
 	"sync"
 
 	"github.com/jiyeol-lee/localdev/pkg/config"
+	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/view"
 	"github.com/rivo/tview"
 )
@@ -63,7 +64,8 @@ func (a *App) StopPanes() {
 		go func() {
 			defer wg.Done()
 
-			cmd := exec.Command("sh", "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
+			sh := shell.Current()
+			cmd := exec.Command(sh, "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
 			if err != nil {

@@ -6,6 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/config"
+	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/util"
 )
 
@@ -73,7 +74,8 @@ func (v *View) keyToCommand(keyRune rune, configPane config.ConfigPane) (string,
 	}
 
 	if configCommand.Silent {
-		cmd := exec.Command("sh", "-c", configCommand.Command)
+		sh := shell.Current()
+		cmd := exec.Command(sh, "-c", configCommand.Command)
 		cmd.Dir = configPane.Dir
 		err := cmd.Start()
 		if err != nil {

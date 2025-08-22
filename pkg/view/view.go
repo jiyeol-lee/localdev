@@ -14,6 +14,7 @@ import (
 	"github.com/jiyeol-lee/localdev/pkg/command"
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
+	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/util"
 	"github.com/rivo/tview"
 	"golang.org/x/sys/unix"
@@ -77,15 +78,11 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 			close(sigCh)
 		}()
 
-		shell := os.Getenv("SHELL")
-		if shell == "" {
-			shell = "/bin/sh" // Default to sh if SHELL is not set
-		}
-
 		ctx, cancel := context.WithCancel(context.Background())
 		defer cancel()
 
-		cmd := exec.CommandContext(ctx, shell, "-c", userCmd)
+		sh := shell.Current()
+		cmd := exec.CommandContext(ctx, sh, "-c", userCmd)
 		cmd.Dir = dir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -113,7 +110,7 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 		fmt.Printf(
 			"%s+ %s -c %s%s\n\n",
 			constant.AnsiColor.Green,
-			shell,
+			sh,
 			sanitizedCmd, // Use sanitized version for display
 			constant.AnsiColor.Reset,
 		)
@@ -188,11 +185,8 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 
 // runPaneUserCommand executes a user-defined command in a new process and captures its output
 func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.TextView) error {
-	shell := os.Getenv("SHELL")
-	if shell == "" {
-		shell = "/bin/sh" // Default to sh if SHELL is not set
-	}
-	cmd := exec.Command(shell, "-c", userCmd)
+	sh := shell.Current()
+	cmd := exec.Command(sh, "-c", userCmd)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
 
