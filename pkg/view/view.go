@@ -20,9 +20,16 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+type PanePreview struct {
+	Name   string
+	Dir    string
+	CmdPid int
+}
+
 type Pane struct {
 	textView *tview.TextView
 	config   config.ConfigPane
+	cmdPid   int
 }
 
 type View struct {
@@ -67,6 +74,15 @@ func sanitizeForDisplay(s string) string {
 	// Remove ANSI escape sequences
 	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 	return ansiRegex.ReplaceAllString(s, "")
+}
+
+// newPane creates a new Pane instance with the provided text view, configuration, and command PID
+func newPane(textView *tview.TextView, config config.ConfigPane, cmdPid int) *Pane {
+	return &Pane{
+		textView: textView,
+		config:   config,
+		cmdPid:   cmdPid,
+	}
 }
 
 func (v *View) runCustomUserCommand(dir string, userCmd string) {
@@ -182,7 +198,11 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 }
 
 // runPaneUserCommand executes a user-defined command in a new process and captures its output
-func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.TextView) error {
+func (v *View) runPaneUserCommand(paneIdx int) error {
+	pane := v.panes[paneIdx]
+	dir := pane.config.Dir
+	userCmd := pane.config.Start
+	textView := pane.textView
 	sh := shell.Current()
 	cmd := exec.Command(sh, "-c", userCmd)
 	cmd.Dir = dir
@@ -200,6 +220,7 @@ func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.Te
 	if err := cmd.Start(); err != nil {
 		return err
 	}
+	pane.cmdPid = cmd.Process.Pid
 
 	go func() {
 		scanner := bufio.NewScanner(stdout)
@@ -253,8 +274,8 @@ func (v *View) Run(configPanes []config.ConfigPane) error {
 	v.tviewApp = tview.NewApplication()
 	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
 	v.tviewPages = v.getRootView(configPanes)
-	for _, pane := range v.panes {
-		err := v.runPaneUserCommand(pane.config.Dir, pane.config.Start, pane.textView)
+	for idx := range v.panes {
+		err := v.runPaneUserCommand(idx)
 		if err != nil {
 			return fmt.Errorf("error running command: %w", err)
 		}
@@ -266,6 +287,18 @@ func (v *View) Run(configPanes []config.ConfigPane) error {
 		return fmt.Errorf("error running app: %w", err)
 	}
 	return nil
+}
+
+func (v *View) GetPanePreviews() []PanePreview {
+	pids := make([]PanePreview, len(v.panes))
+	for i, pane := range v.panes {
+		pids[i] = PanePreview{
+			Name:   pane.config.Name,
+			Dir:    pane.config.Dir,
+			CmdPid: pane.cmdPid,
+		}
+	}
+	return pids
 }
 
 func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
@@ -299,10 +332,9 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 				SetTitle(getPaneTitle(index, configPane, true))
 		})
 
-		v.panes[index] = &Pane{
-			textView: tv,
-			config:   configPane,
-		}
+		v.panes[index] = newPane(
+			tv, configPane, 0,
+		)
 
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
