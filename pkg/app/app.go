@@ -11,6 +11,7 @@ import (
 	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/view"
 	"github.com/rivo/tview"
+	"golang.org/x/sys/unix"
 )
 
 type AppView struct {
@@ -55,6 +56,29 @@ func (a *App) StopPanes() {
 		"\033[38;2;255;105;180m", // Pink
 	}
 	reset := "\033[0m"
+
+	panePreviews := a.view.GetPanePreviews()
+	if len(panePreviews) > 0 {
+		fmt.Println("\n🛑 Terminating running processes...")
+		for _, panePreview := range panePreviews {
+			if err := unix.Kill(-panePreview.CmdPid, unix.SIGINT); err != nil {
+				fmt.Printf(
+					"❌ Error sending SIGINT to pane %s with PID %d: %v\n",
+					panePreview.Name,
+					panePreview.CmdPid,
+					err,
+				)
+				continue
+			}
+			fmt.Printf(
+				"✅ Successfully sent SIGINT to pane %s (PID %d)\n",
+				panePreview.Name,
+				panePreview.CmdPid,
+			)
+		}
+	} else {
+		fmt.Println("ℹ️ No running processes found.")
+	}
 
 	for i, pane := range a.config.Panes {
 		pane := pane // capture
