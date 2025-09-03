@@ -177,8 +177,6 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 					break
 				}
 			}
-			// If the user presses Enter after typing something, we can break the loop
-			break
 		}
 	})
 }
@@ -395,11 +393,9 @@ func (v *View) openCommandOutputModal() *tview.InputField {
 					command,
 				)
 				inputField.SetText("")
-				break
 
 			default:
 				v.commandOutputModal.resetCommandHistoryIndex()
-				break
 			}
 
 			return event
