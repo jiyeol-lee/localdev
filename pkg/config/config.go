@@ -80,3 +80,17 @@ func (c *Config) LoadConfig(configFileName string) error {
 
 	return nil
 }
+
+func (c *Config) GetProjectDir() string {
+	if c.ProjectSettings != nil {
+		return c.ProjectSettings.Dir
+	}
+	return ""
+}
+
+func (c *Config) GetProjectCommand() string {
+	if c.ProjectSettings != nil {
+		return c.ProjectSettings.Command
+	}
+	return ""
+}

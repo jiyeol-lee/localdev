@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"syscall"
 
@@ -249,10 +250,20 @@ func getPaneTitle(paneIndex int, configPane config.ConfigPane, focused bool) str
 	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, configPane.Name, branchInfo)
 }
 
-func (v *View) Run(configPanes []config.ConfigPane) error {
+func (v *View) Run(config config.Config) error {
 	v.tviewApp = tview.NewApplication()
 	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
-	v.tviewPages = v.getRootView(configPanes)
+	v.tviewPages, v.panes = v.getRootView(config)
+	projectCmd := config.GetProjectCommand()
+	if projectCmd != "" {
+		sh := shell.Current()
+		cmd := exec.Command(sh, "-c", projectCmd)
+		cmd.Stdout = os.Stdout
+		cmd.Stderr = os.Stderr
+		if err := cmd.Run(); err != nil {
+			return fmt.Errorf("error running project command: %w", err)
+		}
+	}
 	for _, pane := range v.panes {
 		err := v.runPaneUserCommand(pane.config.Dir, pane.config.Start, pane.textView)
 		if err != nil {
@@ -268,10 +279,10 @@ func (v *View) Run(configPanes []config.ConfigPane) error {
 	return nil
 }
 
-func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
+func (v *View) getRootView(config config.Config) (*tview.Pages, []*Pane) {
 	root := tview.NewPages()
-	l := len(configPanes)
-	v.panes = make([]*Pane, l)
+	l := len(config.Panes)
+	panes := make([]*Pane, l)
 	rows, cols := getGridDimensions(l)
 	grid := tview.NewGrid()
 	grid.
@@ -279,7 +290,7 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 		SetColumns(makeFlexibleSlice(cols)...)
 	row := 0
 	col := 0
-	for index, configPane := range configPanes {
+	for index, configPane := range config.Panes {
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
 			SetScrollable(true).
@@ -299,7 +310,12 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 				SetTitle(getPaneTitle(index, configPane, true))
 		})
 
-		v.panes[index] = &Pane{
+		projectDir := config.GetProjectDir()
+		if projectDir != "" {
+			configPane.Dir = filepath.Join(projectDir, configPane.Dir)
+		}
+
+		panes[index] = &Pane{
 			textView: tv,
 			config:   configPane,
 		}
@@ -314,7 +330,7 @@ func (v *View) getRootView(configPanes []config.ConfigPane) *tview.Pages {
 	}
 	root.AddPage(constant.Page.MainPage, grid, true, true)
 
-	return root
+	return root, panes
 }
 
 func (v *View) disablePanesMouse() {

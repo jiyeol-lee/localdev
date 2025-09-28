@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sync"
 
 	"github.com/jiyeol-lee/localdev/pkg/config"
@@ -32,7 +33,7 @@ func Run(configFileName string) (*App, error) {
 		return nil, fmt.Errorf("error loading config: %w", err)
 	}
 
-	if err := a.view.Run(a.config.Panes); err != nil {
+	if err := a.view.Run(*a.config); err != nil {
 		return nil, fmt.Errorf("error running view: %w", err)
 	}
 
@@ -65,7 +66,16 @@ func (a *App) StopPanes() {
 			defer wg.Done()
 
 			sh := shell.Current()
-			cmd := exec.Command(sh, "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
+			dir := pane.Dir
+			projectDir := a.config.GetProjectDir()
+			if projectDir != "" {
+				dir = filepath.Join(projectDir, pane.Dir)
+			}
+			cmd := exec.Command(
+				sh,
+				"-c",
+				fmt.Sprintf("cd %s && %s", dir, pane.Stop),
+			)
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
 			if err != nil {
