@@ -520,3 +520,30 @@ func (v *View) setCommandHelpModalBodyText() {
 		}
 	}
 }
+
+// togglePaneSize maximizes the currently focused pane or restores it back to the grid view
+func (v *View) togglePaneSize() {
+	focusedPaneIndex := v.focusedViewIndex()
+	if focusedPaneIndex == -1 {
+		return
+	}
+
+	fpName, _ := v.tviewPages.GetFrontPage()
+	if fpName == constant.Page.MainPage {
+		v.tviewPages.AddAndSwitchToPage(
+			constant.Page.MaximizedPane,
+			v.panes[focusedPaneIndex].textView,
+			true,
+		)
+	} else {
+		v.tviewPages.SwitchToPage(constant.Page.MainPage)
+		v.tviewPages.RemovePage(constant.Page.MaximizedPane)
+		v.tviewApp.SetFocus(v.panes[focusedPaneIndex].textView)
+	}
+}
+
+// checkIsPaneMaximized checks if any pane is currently maximized
+func (v *View) checkIsPaneMaximized() bool {
+	fpName, _ := v.tviewPages.GetFrontPage()
+	return fpName == constant.Page.MaximizedPane
+}
