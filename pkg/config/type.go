@@ -63,6 +63,11 @@ type ConfigCommands struct {
 	UpperZ *ConfigCommand `yaml:"upperZ,omitempty"`
 }
 
+type ProjectSettings struct {
+	Dir     string `yaml:"dir,omitempty"`
+	Command string `yaml:"command,omitempty"`
+}
+
 type ConfigPane struct {
 	Name     string          `yaml:"name"`
 	Dir      string          `yaml:"dir"`
@@ -72,5 +77,6 @@ type ConfigPane struct {
 }
 
 type Config struct {
-	Panes []ConfigPane `yaml:"panes"`
+	ProjectSettings *ProjectSettings `yaml:"project_settings,omitempty"`
+	Panes           []ConfigPane     `yaml:"panes"`
 }
