@@ -32,7 +32,7 @@ func Run(configFileName string) (*App, error) {
 		return nil, fmt.Errorf("error loading config: %w", err)
 	}
 
-	if err := a.view.Run(a.config.Panes); err != nil {
+	if err := a.view.Run(*a.config); err != nil {
 		return nil, fmt.Errorf("error running view: %w", err)
 	}
 
@@ -65,7 +65,16 @@ func (a *App) StopPanes() {
 			defer wg.Done()
 
 			sh := shell.Current()
-			cmd := exec.Command(sh, "-c", fmt.Sprintf("cd %s && %s", pane.Dir, pane.Stop))
+			dir := pane.Dir
+			projectDir := a.config.GetProjectDir()
+			if projectDir != "" {
+				dir = projectDir + "/" + pane.Dir
+			}
+			cmd := exec.Command(
+				sh,
+				"-c",
+				fmt.Sprintf("cd %s && %s", dir, pane.Stop),
+			)
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
 			if err != nil {
