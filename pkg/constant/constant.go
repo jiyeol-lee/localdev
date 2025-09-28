@@ -4,16 +4,18 @@ var Page = struct {
 	MainPage               string
 	CommandOutputModalPage string
 	CommandHelpModalPage   string
+	MaximizedPane          string
 }{
 	MainPage:               "main",
 	CommandOutputModalPage: "command_output_modal",
 	CommandHelpModalPage:   "command_help_modal",
+	MaximizedPane:          "maximized_pane",
 }
 
 var ReservedCommand = struct {
-	KillProcess string
+	TogglePaneSize string
 }{
-	KillProcess: "__KILL_PROCESS__",
+	TogglePaneSize: "<toggle_pane_size>",
 }
 
 var AnsiColor = struct {

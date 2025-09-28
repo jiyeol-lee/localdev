@@ -6,6 +6,7 @@ import (
 
 	"github.com/gdamore/tcell/v2"
 	"github.com/jiyeol-lee/localdev/pkg/config"
+	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/util"
 )
@@ -39,9 +40,12 @@ func keyToFocusAction(key rune, textViewsLength int) (int, bool) {
 }
 
 // keyToCommand maps key inputs to command actions defined in the configuration.
-func (v *View) keyToCommand(keyRune rune, configPane config.ConfigPane) (string, bool, error) {
+func (v *View) keyToCommand(
+	keyRune rune,
+	configPane config.ConfigPane,
+) (*config.ConfigCommand, error) {
 	if configPane.Commands == nil {
-		return "", false, fmt.Errorf("no commands defined for pane: %s", configPane.Name)
+		return nil, fmt.Errorf("no commands defined for pane: %s", configPane.Name)
 	}
 
 	keyName := ""
@@ -51,14 +55,14 @@ func (v *View) keyToCommand(keyRune rune, configPane config.ConfigPane) (string,
 		keyName = fmt.Sprintf("upper%c", keyRune)
 	}
 	if keyName == "" {
-		return "", false, fmt.Errorf("invalid keyRune: %c", keyRune)
+		return nil, fmt.Errorf("invalid keyRune: %c", keyRune)
 	}
 
 	paneCommandsMap, err := util.YamlToMap[*config.ConfigCommands, *config.ConfigCommand](
 		configPane.Commands,
 	)
 	if err != nil {
-		return "", false, err
+		return nil, err
 	}
 
 	var configCommand *config.ConfigCommand
@@ -70,21 +74,10 @@ func (v *View) keyToCommand(keyRune rune, configPane config.ConfigPane) (string,
 	}
 
 	if configCommand == nil {
-		return "", false, fmt.Errorf("no command found for key: %s", keyName)
+		return nil, fmt.Errorf("no command found for key: %s", keyName)
 	}
 
-	if configCommand.Silent {
-		sh := shell.Current()
-		cmd := exec.Command(sh, "-c", configCommand.Command)
-		cmd.Dir = configPane.Dir
-		err := cmd.Start()
-		if err != nil {
-			return "", false, err
-		}
-		return "", false, nil
-	}
-
-	return configCommand.Command, configCommand.AutoExecute, nil
+	return configCommand, nil
 }
 
 func (v *View) focusedViewIndex() int {
@@ -103,11 +96,13 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 	focusedViewIndex := v.focusedViewIndex()
 
 	if focusedViewIndex != -1 {
-		// handle pane focus switching when there is no modal focused
-		if action, ok := keyToFocusAction(event.Rune(), panesLength); ok {
+		// handle pane focus switching when there is no modal focused and no pane is maximized
+		if action, ok := keyToFocusAction(event.Rune(), panesLength); ok &&
+			!v.checkIsPaneMaximized() {
 			v.tviewApp.SetFocus(v.panes[action].textView)
 		}
 
+		// open command help modal when '?' is pressed
 		if event.Rune() == 63 {
 			if !v.checkIsCommandHelpModalOpen() && !v.checkIsCommandOutputModalOpen() {
 				v.commandHelpModal.callerPaneIndex = focusedViewIndex
@@ -118,19 +113,44 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 			return event
 		}
 
-		if command, autoExecute, err := v.keyToCommand(event.Rune(), v.panes[focusedViewIndex].config); err == nil &&
-			command != "" {
+		configPane := v.panes[focusedViewIndex].config
+		if configCommand, err := v.keyToCommand(event.Rune(), configPane); err == nil &&
+			configCommand.Command != "" {
+			if configCommand.Command == constant.ReservedCommand.TogglePaneSize {
+				v.togglePaneSize()
+				return event
+			}
+			if configCommand.Silent {
+				sh := shell.Current()
+				cmd := exec.Command(sh, "-c", configCommand.Command)
+				cmd.Dir = configPane.Dir
+				err := cmd.Start()
+				if err != nil {
+					v.panes[focusedViewIndex].textView.Write(
+						fmt.Appendf(nil, "[red]Command execution failed: %s[white]\n",
+							err,
+						),
+					)
+				} else {
+					v.panes[focusedViewIndex].textView.Write(
+						fmt.Appendf(nil, "[green]Command started successfully: %s[white]\n",
+							configCommand.Command,
+						),
+					)
+				}
+				return event
+			}
 			if !v.checkIsCommandHelpModalOpen() && !v.checkIsCommandOutputModalOpen() {
 				v.commandOutputModal.callerPaneIndex = focusedViewIndex
-				v.commandOutputModal.appendCommandHistory(command)
-				if autoExecute {
+				v.commandOutputModal.appendCommandHistory(configCommand.Command)
+				if configCommand.AutoExecute {
 					v.runCustomUserCommand(
 						v.panes[v.commandOutputModal.callerPaneIndex].config.Dir,
-						command,
+						configCommand.Command,
 					)
 				} else {
 					v.commandOutputModal.inputField = v.openCommandOutputModal()
-					v.commandOutputModal.inputField.SetText(command)
+					v.commandOutputModal.inputField.SetText(configCommand.Command)
 				}
 				v.disablePanesMouse()
 			}
