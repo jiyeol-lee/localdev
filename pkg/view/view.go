@@ -7,6 +7,7 @@ import (
 	"os"
 	"os/exec"
 	"os/signal"
+	"path/filepath"
 	"regexp"
 	"syscall"
 
@@ -311,7 +312,7 @@ func (v *View) getRootView(config config.Config) (*tview.Pages, []*Pane) {
 
 		projectDir := config.GetProjectDir()
 		if projectDir != "" {
-			configPane.Dir = projectDir + "/" + configPane.Dir
+			configPane.Dir = filepath.Join(projectDir, configPane.Dir)
 		}
 
 		panes[index] = &Pane{

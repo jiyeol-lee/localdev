@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os/exec"
+	"path/filepath"
 	"sync"
 
 	"github.com/jiyeol-lee/localdev/pkg/config"
@@ -68,7 +69,7 @@ func (a *App) StopPanes() {
 			dir := pane.Dir
 			projectDir := a.config.GetProjectDir()
 			if projectDir != "" {
-				dir = projectDir + "/" + pane.Dir
+				dir = filepath.Join(projectDir, pane.Dir)
 			}
 			cmd := exec.Command(
 				sh,
