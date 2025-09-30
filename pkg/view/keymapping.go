@@ -2,6 +2,7 @@ package view
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 
 	"github.com/gdamore/tcell/v2"
@@ -123,6 +124,7 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 			if configCommand.Silent {
 				sh := shell.Current()
 				cmd := exec.Command(sh, "-c", configCommand.Command)
+				cmd.Env = append(os.Environ(), v.envVars...)
 				cmd.Dir = configPane.Dir
 				err := cmd.Start()
 				if err != nil {

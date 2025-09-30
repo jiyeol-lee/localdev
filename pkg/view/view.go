@@ -15,6 +15,7 @@ import (
 	"github.com/jiyeol-lee/localdev/pkg/command"
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
+	"github.com/jiyeol-lee/localdev/pkg/internal/env_vars"
 	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/util"
 	"github.com/rivo/tview"
@@ -30,6 +31,7 @@ type View struct {
 	tviewApp           *tview.Application
 	tviewPages         *tview.Pages
 	panes              []*Pane
+	envVars            []string
 	commandOutputModal *commandOutputModal
 	commandHelpModal   *commandHelpModal
 }
@@ -84,6 +86,7 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 
 		sh := shell.Current()
 		cmd := exec.CommandContext(ctx, sh, "-c", userCmd)
+		cmd.Env = append(os.Environ(), v.envVars...)
 		cmd.Dir = dir
 		cmd.Stdout = os.Stdout
 		cmd.Stderr = os.Stderr
@@ -186,6 +189,7 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.TextView) error {
 	sh := shell.Current()
 	cmd := exec.Command(sh, "-c", userCmd)
+	cmd.Env = append(os.Environ(), v.envVars...)
 	cmd.Dir = dir
 	cmd.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
 
@@ -250,18 +254,27 @@ func getPaneTitle(paneIndex int, configPane config.ConfigPane, focused bool) str
 	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, configPane.Name, branchInfo)
 }
 
+func (v *View) GetEnvVars() []string {
+	return v.envVars
+}
+
 func (v *View) Run(config config.Config) error {
 	v.tviewApp = tview.NewApplication()
 	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
 	v.tviewPages, v.panes = v.getRootView(config)
 	projectCmd := config.GetProjectCommand()
 	if projectCmd != "" {
-		sh := shell.Current()
-		cmd := exec.Command(sh, "-c", projectCmd)
-		cmd.Stdout = os.Stdout
-		cmd.Stderr = os.Stderr
-		if err := cmd.Run(); err != nil {
+		beforeCommandEnvVars, afterCommandEnvVars, err := env_vars.RunCommandAndCaptureEnvVars(
+			projectCmd,
+		)
+		defer os.Remove(beforeCommandEnvVars)
+		defer os.Remove(afterCommandEnvVars)
+		if err != nil {
 			return fmt.Errorf("error running project command: %w", err)
+		}
+		v.envVars, err = env_vars.GetDiffEnvVars(beforeCommandEnvVars, afterCommandEnvVars)
+		if err != nil {
+			return fmt.Errorf("error getting env vars diff: %w", err)
 		}
 	}
 	for _, pane := range v.panes {
