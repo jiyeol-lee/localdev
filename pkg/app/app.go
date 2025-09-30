@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"fmt"
 	"io"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"sync"
@@ -76,6 +77,7 @@ func (a *App) StopPanes() {
 				"-c",
 				fmt.Sprintf("cd %s && %s", dir, pane.Stop),
 			)
+			cmd.Env = append(os.Environ(), a.view.GetEnvVars()...)
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
 			if err != nil {
