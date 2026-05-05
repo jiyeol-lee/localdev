@@ -1,0 +1,90 @@
+panes:
+  - name: pane-1
+    dir: test_files
+    start: podman rm -f localdev-pane-1 >/dev/null 2>&1 || true; podman build -t localdev-pane-test . && podman run --rm --name localdev-pane-1 -e PANE_NAME=pane-1 localdev-pane-test
+    stop: podman rm -f localdev-pane-1 >/dev/null 2>&1 || true
+    commands:
+      lowerS:
+        command: <start_pane>
+        description: Restart pane-1
+        autoExecute: true
+      lowerX:
+        command: <stop_pane>
+        description: Stop pane-1
+        autoExecute: true
+      lowerT:
+        command: <toggle_pane_size>
+        description: Toggle pane size
+        autoExecute: true
+
+  - name: pane-2
+    dir: test_files
+    start: podman rm -f localdev-pane-2 >/dev/null 2>&1 || true; podman build -t localdev-pane-test . && podman run --rm --name localdev-pane-2 -e PANE_NAME=pane-2 localdev-pane-test
+    stop: podman rm -f localdev-pane-2 >/dev/null 2>&1 || true
+    commands:
+      lowerS:
+        command: <start_pane>
+        description: Restart pane-2
+        autoExecute: true
+      lowerX:
+        command: <stop_pane>
+        description: Stop pane-2
+        autoExecute: true
+      lowerT:
+        command: <toggle_pane_size>
+        description: Toggle pane size
+        autoExecute: true
+
+  - name: pane-3
+    dir: test_files
+    start: podman rm -f localdev-pane-3 >/dev/null 2>&1 || true; podman build -t localdev-pane-test . && podman run --rm --name localdev-pane-3 -e PANE_NAME=pane-3 localdev-pane-test
+    stop: podman rm -f localdev-pane-3 >/dev/null 2>&1 || true
+    commands:
+      lowerS:
+        command: <start_pane>
+        description: Restart pane-3
+        autoExecute: true
+      lowerX:
+        command: <stop_pane>
+        description: Stop pane-3
+        autoExecute: true
+      lowerT:
+        command: <toggle_pane_size>
+        description: Toggle pane size
+        autoExecute: true
+
+  - name: pane-4
+    dir: test_files
+    start: podman rm -f localdev-pane-4 >/dev/null 2>&1 || true; podman build -t localdev-pane-test . && podman run --rm --name localdev-pane-4 -e PANE_NAME=pane-4 localdev-pane-test
+    stop: podman rm -f localdev-pane-4 >/dev/null 2>&1 || true
+    commands:
+      lowerS:
+        command: <start_pane>
+        description: Restart pane-4
+        autoExecute: true
+      lowerX:
+        command: <stop_pane>
+        description: Stop pane-4
+        autoExecute: true
+      lowerT:
+        command: <toggle_pane_size>
+        description: Toggle pane size
+        autoExecute: true
+
+  - name: pane-5
+    dir: test_files
+    start: podman rm -f localdev-pane-5 >/dev/null 2>&1 || true; podman build -t localdev-pane-test . && podman run --rm --name localdev-pane-5 -e PANE_NAME=pane-5 localdev-pane-test
+    stop: podman rm -f localdev-pane-5 >/dev/null 2>&1 || true
+    commands:
+      lowerS:
+        command: <start_pane>
+        description: Restart pane-5
+        autoExecute: true
+      lowerX:
+        command: <stop_pane>
+        description: Stop pane-5
+        autoExecute: true
+      lowerT:
+        command: <toggle_pane_size>
+        description: Toggle pane size
+        autoExecute: true

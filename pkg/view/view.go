@@ -9,9 +9,12 @@ import (
 	"os/signal"
 	"path/filepath"
 	"regexp"
+	"sync"
 	"syscall"
+	"time"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/jiyeol-lee/localdev/internal/logger"
 	"github.com/jiyeol-lee/localdev/pkg/command"
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
@@ -22,11 +25,53 @@ import (
 	"golang.org/x/sys/unix"
 )
 
+// Pane represents a single terminal pane with its running process and UI component.
 type Pane struct {
-	textView *tview.TextView
-	config   config.ConfigPane
+	textView     *tview.TextView
+	config       config.ConfigPane
+	mu           sync.Mutex
+	cmd          *exec.Cmd
+	generation   int
+	stopExecuted bool
+
+	expectedStopGenerations map[int]bool
 }
 
+func (p *Pane) markExpectedStop(gen int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.expectedStopGenerations == nil {
+		p.expectedStopGenerations = make(map[int]bool)
+	}
+	p.expectedStopGenerations[gen] = true
+}
+
+func (p *Pane) isExpectedStop(gen int) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.expectedStopGenerations[gen]
+}
+
+func (p *Pane) clearExpectedStop(gen int) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	delete(p.expectedStopGenerations, gen)
+}
+
+// IsRunning reports whether the pane's start process is currently running.
+func (p *Pane) IsRunning() bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	if p.cmd == nil || p.cmd.Process == nil {
+		return false
+	}
+	if p.cmd.ProcessState != nil {
+		return false
+	}
+	return unix.Kill(-p.cmd.Process.Pid, 0) == nil
+}
+
+// View manages the terminal UI, panes, and user interactions.
 type View struct {
 	tviewApp           *tview.Application
 	tviewPages         *tview.Pages
@@ -58,17 +103,13 @@ func getGridDimensions(length int) (rows, cols int) {
 
 // makeFlexibleSlice creates a slice of integers with the specified size and initializes all elements to 0
 func makeFlexibleSlice(size int) []int {
-	s := make([]int, size)
-	for i := range s {
-		s[i] = 0
-	}
-	return s
+	return make([]int, size)
 }
+
+var ansiRegex = regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 
 // sanitizeForDisplay removes or escapes ANSI escape sequences from a string for safe display
 func sanitizeForDisplay(s string) string {
-	// Remove ANSI escape sequences
-	ansiRegex := regexp.MustCompile(`\x1b\[[0-9;]*[a-zA-Z]`)
 	return ansiRegex.ReplaceAllString(s, "")
 }
 
@@ -119,6 +160,11 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 			constant.AnsiColor.Reset,
 		)
 		if err := cmd.Start(); err != nil {
+			logger.Errorf(
+				"error starting suspended custom command for pane %s: %v",
+				v.panes[v.commandOutputModal.callerPaneIndex].config.Name,
+				err,
+			)
 			fmt.Printf(
 				"%sError starting command: %s%s\n",
 				constant.AnsiColor.Red,
@@ -144,6 +190,7 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 							}
 						}
 					}
+					logger.Errorf("suspended custom command for pane %s exited with error: %v", v.panes[v.commandOutputModal.callerPaneIndex].config.Name, err)
 					fmt.Printf("%sError running command: %s%s\n", constant.AnsiColor.Red, err, constant.AnsiColor.Reset)
 				}
 				break loop
@@ -151,7 +198,10 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 				cancel()
 				// kill the process group to ensure all child processes are terminated
 				if cmd.Process != nil {
-					unix.Kill(-cmd.Process.Pid, unix.SIGKILL)
+					pid := cmd.Process.Pid
+					if err := unix.Kill(-pid, unix.SIGKILL); err != nil && err != syscall.ESRCH {
+						logger.Warnf("failed to send SIGKILL during suspended command cancellation for pane %s (pid=%d, pgid=%d): %v", v.panes[v.commandOutputModal.callerPaneIndex].config.Name, pid, -pid, err)
+					}
 				}
 			}
 		}
@@ -160,7 +210,9 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 		// After the command completes and control returns to the Go program, these buffered inputs are immediately consumed by fmt.Scanln,
 		// which can cause it to return without waiting for new user input. The flushInput() function clears any buffered input,
 		// ensuring that fmt.Scanln waits for fresh input from the user.
-		flushInput()
+		if err := flushInput(); err != nil {
+			logger.Warnf("failed to flush terminal input after suspended custom command: %v", err)
+		}
 
 		// Wait for user input after command completes
 		fmt.Printf(
@@ -186,51 +238,106 @@ func (v *View) runCustomUserCommand(dir string, userCmd string) {
 }
 
 // runPaneUserCommand executes a user-defined command in a new process and captures its output
-func (v *View) runPaneUserCommand(dir string, userCmd string, textView *tview.TextView) error {
+func (v *View) runPaneUserCommand(pane *Pane, generation int) (*exec.Cmd, error) {
 	sh := shell.Current()
-	cmd := exec.Command(sh, "-c", userCmd)
+	cmd := exec.Command(sh, "-c", pane.config.Start)
 	cmd.Env = append(os.Environ(), v.envVars...)
-	cmd.Dir = dir
+	cmd.Dir = pane.config.Dir
 	cmd.SysProcAttr = &unix.SysProcAttr{Setpgid: true}
 
 	stdout, stdoutErr := cmd.StdoutPipe()
 	if stdoutErr != nil {
-		return fmt.Errorf("error getting stdout pipe: %w", stdoutErr)
+		return nil, fmt.Errorf("error getting stdout pipe: %w", stdoutErr)
 	}
 	stderr, stderrErr := cmd.StderrPipe()
 	if stderrErr != nil {
-		return fmt.Errorf("error getting stderr pipe: %w", stderrErr)
+		return nil, fmt.Errorf("error getting stderr pipe: %w", stderrErr)
 	}
 
 	if err := cmd.Start(); err != nil {
-		return err
+		return nil, err
 	}
 
-	go func() {
+	go func(gen int) {
 		scanner := bufio.NewScanner(stdout)
 		for scanner.Scan() {
+			pane.mu.Lock()
+			currentGen := pane.generation
+			pane.mu.Unlock()
+			if gen != currentGen {
+				return
+			}
 			t := scanner.Text()
 			v.tviewApp.QueueUpdate(func() {
-				textView.Write([]byte(t + "\n"))
+				_, _ = pane.textView.Write([]byte(t + "\n"))
 			})
 		}
-	}()
+		if err := scanner.Err(); err != nil {
+			logger.Errorf(
+				"error reading stdout for pane %s during start command: %v",
+				pane.config.Name,
+				err,
+			)
+		}
+	}(generation)
 
-	go func() {
+	go func(gen int) {
 		scanner := bufio.NewScanner(stderr)
 		for scanner.Scan() {
+			pane.mu.Lock()
+			currentGen := pane.generation
+			pane.mu.Unlock()
+			if gen != currentGen {
+				return
+			}
 			t := scanner.Text()
 			v.tviewApp.QueueUpdate(func() {
-				textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
+				_, _ = pane.textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
 			})
 		}
-	}()
+		if err := scanner.Err(); err != nil {
+			logger.Errorf(
+				"error reading stderr for pane %s during start command: %v",
+				pane.config.Name,
+				err,
+			)
+		}
+	}(generation)
 
-	return nil
+	return cmd, nil
+}
+
+func (v *View) handlePaneCommandWaitError(pane *Pane, phase string, generation int, err error) {
+	if err == nil {
+		return
+	}
+	if exitErr, ok := err.(*exec.ExitError); ok {
+		if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() &&
+			(status.Signal() == unix.SIGINT || status.Signal() == unix.SIGKILL) &&
+			pane.isExpectedStop(generation) {
+			// Silently ignore expected SIGINT/SIGKILL for this process generation.
+			return
+		}
+	}
+	logger.Errorf("pane %s %s command exited with error: %v", pane.config.Name, phase, err)
+	v.tviewApp.QueueUpdate(func() {
+		_, _ = fmt.Fprintf(
+			pane.textView,
+			"[red]Pane %s %s command exited with error: %v[-]\n",
+			pane.config.Name,
+			phase,
+			err,
+		)
+	})
 }
 
 // getPaneTitle generates the title for each pane in the grid
-func getPaneTitle(paneIndex int, configPane config.ConfigPane, focused bool) string {
+func getPaneTitle(
+	paneIndex int,
+	configPane config.ConfigPane,
+	focused bool,
+	isRunning bool,
+) string {
 	branch, err := command.GetCurrentBranch(configPane.Dir)
 	branchInfo := branch
 	// if git is not initialized, it will return an error
@@ -247,17 +354,32 @@ func getPaneTitle(paneIndex int, configPane config.ConfigPane, focused bool) str
 		)
 	}
 
-	if focused {
-		return fmt.Sprintf("[green][%d] %s[white] - %s", paneIndex+1, configPane.Name, branchInfo)
+	statusIndicator := ""
+	if isRunning {
+		statusIndicator = "[green]●[white] "
+	} else {
+		statusIndicator = "[red]●[white] "
 	}
 
-	return fmt.Sprintf("[%d] %s - %s", paneIndex+1, configPane.Name, branchInfo)
+	if focused {
+		return fmt.Sprintf(
+			"[green][%d] %s[green]%s[white] - %s",
+			paneIndex+1,
+			statusIndicator,
+			configPane.Name,
+			branchInfo,
+		)
+	}
+
+	return fmt.Sprintf("[%d] %s%s - %s", paneIndex+1, statusIndicator, configPane.Name, branchInfo)
 }
 
+// GetEnvVars returns the environment variables captured after running the project command.
 func (v *View) GetEnvVars() []string {
 	return v.envVars
 }
 
+// Run initializes and starts the terminal UI with the given configuration.
 func (v *View) Run(config config.Config) error {
 	v.tviewApp = tview.NewApplication()
 	v.tviewApp.EnableMouse(true).EnablePaste(true).SetInputCapture(v.keyMapping)
@@ -277,11 +399,42 @@ func (v *View) Run(config config.Config) error {
 			return fmt.Errorf("error getting env vars diff: %w", err)
 		}
 	}
-	for _, pane := range v.panes {
-		err := v.runPaneUserCommand(pane.config.Dir, pane.config.Start, pane.textView)
+	for i, pane := range v.panes {
+		pane.mu.Lock()
+		pane.generation++
+		gen := pane.generation
+		pane.mu.Unlock()
+
+		cmd, err := v.runPaneUserCommand(pane, gen)
 		if err != nil {
+			logger.Errorf(
+				"error running initial start command for pane %s: %v",
+				pane.config.Name,
+				err,
+			)
 			return fmt.Errorf("error running command: %w", err)
 		}
+
+		pane.mu.Lock()
+		pane.cmd = cmd
+		pane.mu.Unlock()
+
+		go func(p *Pane, c *exec.Cmd, gen int, idx int) {
+			defer p.clearExpectedStop(gen)
+			if err := c.Wait(); err != nil {
+				v.handlePaneCommandWaitError(p, "start", gen, err)
+			}
+			p.mu.Lock()
+			if p.cmd == c {
+				p.cmd = nil
+			}
+			p.mu.Unlock()
+			v.tviewApp.QueueUpdate(func() {
+				v.updatePaneTitle(idx)
+			})
+		}(pane, cmd, gen, i)
+
+		v.updatePaneTitle(i)
 	}
 	v.tviewApp.SetRoot(v.tviewPages, true)
 	v.commandOutputModal = newCommandOutputModal()
@@ -304,6 +457,11 @@ func (v *View) getRootView(config config.Config) (*tview.Pages, []*Pane) {
 	row := 0
 	col := 0
 	for index, configPane := range config.Panes {
+		projectDir := config.GetProjectDir()
+		if projectDir != "" {
+			configPane.Dir = filepath.Join(projectDir, configPane.Dir)
+		}
+
 		tv := tview.NewTextView().
 			SetDynamicColors(true).
 			SetScrollable(true).
@@ -312,26 +470,22 @@ func (v *View) getRootView(config config.Config) (*tview.Pages, []*Pane) {
 			}).ScrollToEnd().SetMaxLines(constant.MaxPaneOutputLines)
 		tv.
 			SetBorder(true).
-			SetTitle(getPaneTitle(index, configPane, tv.HasFocus()))
-
-		tv.SetBlurFunc(func() {
-			tv.SetBorderColor(tcell.ColorWhite).
-				SetTitle(getPaneTitle(index, configPane, false))
-		})
-		tv.SetFocusFunc(func() {
-			tv.SetBorderColor(tcell.ColorGreen).
-				SetTitle(getPaneTitle(index, configPane, true))
-		})
-
-		projectDir := config.GetProjectDir()
-		if projectDir != "" {
-			configPane.Dir = filepath.Join(projectDir, configPane.Dir)
-		}
+			SetTitle(getPaneTitle(index, configPane, tv.HasFocus(), false))
 
 		panes[index] = &Pane{
 			textView: tv,
 			config:   configPane,
 		}
+		paneRef := panes[index]
+
+		tv.SetBlurFunc(func() {
+			tv.SetBorderColor(tcell.ColorWhite).
+				SetTitle(getPaneTitle(index, configPane, false, paneRef.IsRunning()))
+		})
+		tv.SetFocusFunc(func() {
+			tv.SetBorderColor(tcell.ColorGreen).
+				SetTitle(getPaneTitle(index, configPane, true, paneRef.IsRunning()))
+		})
 
 		grid.AddItem(tv, row, col, 1, 1, 0, 0, true)
 		if row == 1 {
@@ -498,38 +652,90 @@ func (v *View) setCommandHelpModalBodyText() {
 	tv := v.commandHelpModal.textView
 
 	tv.Clear()
-	tv.Write([]byte(fmt.Appendf(nil, "\n  [orange]===%s===[-]\n\n", "Local")))
-	tv.Write([]byte(fmt.Appendf(nil, "  [lightgreen]Silent[-] command\n")))
-	tv.Write([]byte(fmt.Appendf(nil, "  [green]Normal[-] command\n\n")))
+	_, _ = tv.Write(fmt.Appendf(nil, "\n  [orange]===%s===[-]\n\n", "Local"))
+	_, _ = tv.Write(fmt.Appendf(nil, "  [lightgreen]Silent[-] command\n"))
+	_, _ = tv.Write(fmt.Appendf(nil, "  [green]Normal[-] command\n\n"))
 
 	paneCommands := v.panes[v.commandHelpModal.callerPaneIndex].config.Commands
 	if paneCommands == nil {
-		tv.Write(fmt.Appendf(nil, "  No commands available\n"))
+		_, _ = tv.Write(fmt.Appendf(nil, "  No commands available\n"))
 		return
 	}
 	paneCommandsMap, err := util.YamlToMap[*config.ConfigCommands, *config.ConfigCommand](
 		paneCommands,
 	)
 	if err != nil {
-		tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
+		logger.Errorf(
+			"error rendering command help for pane %s: %v",
+			v.panes[v.commandHelpModal.callerPaneIndex].config.Name,
+			err,
+		)
+		_, _ = tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
 		return
 	}
 
+	// Print non-reserved commands first
 	for key, configCommand := range paneCommandsMap {
 		if configCommand == nil {
 			continue
 		}
+		if configCommand.Command == constant.ReservedCommand.TogglePaneSize ||
+			configCommand.Command == constant.ReservedCommand.StartPane ||
+			configCommand.Command == constant.ReservedCommand.StopPane {
+			continue
+		}
 		c, err := convertCommandKeyToCharacter(key)
 		if err != nil {
-			tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
+			logger.Errorf(
+				"error rendering command help key %q for pane %s: %v",
+				key,
+				v.panes[v.commandHelpModal.callerPaneIndex].config.Name,
+				err,
+			)
+			_, _ = tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
 			continue
 		}
 		if configCommand.Silent {
-			tv.Write(
+			_, _ = tv.Write(
 				fmt.Appendf(nil, "  [lightgreen]%s[white] %s\n", c, configCommand.Description),
 			)
 		} else {
-			tv.Write(fmt.Appendf(nil, "  [green]%s[white] %s\n", c, configCommand.Description))
+			_, _ = tv.Write(fmt.Appendf(nil, "  [green]%s[white] %s\n", c, configCommand.Description))
+		}
+	}
+
+	// Show reserved commands section if any are bound
+	var reservedKeys []string
+	for key, configCommand := range paneCommandsMap {
+		if configCommand == nil {
+			continue
+		}
+		if configCommand.Command == constant.ReservedCommand.TogglePaneSize ||
+			configCommand.Command == constant.ReservedCommand.StartPane ||
+			configCommand.Command == constant.ReservedCommand.StopPane {
+			reservedKeys = append(reservedKeys, key)
+		}
+	}
+
+	if len(reservedKeys) > 0 {
+		_, _ = tv.Write(fmt.Appendf(nil, "\n  [orange]===%s===[-]\n\n", "Reserved"))
+
+		for _, key := range reservedKeys {
+			configCommand := paneCommandsMap[key]
+			c, err := convertCommandKeyToCharacter(key)
+			if err != nil {
+				logger.Errorf(
+					"error rendering reserved command help key %q for pane %s: %v",
+					key,
+					v.panes[v.commandHelpModal.callerPaneIndex].config.Name,
+					err,
+				)
+				_, _ = tv.Write(fmt.Appendf(nil, "  [red]Error[white]: %s\n", err))
+				continue
+			}
+			_, _ = tv.Write(
+				fmt.Appendf(nil, "  [orange]%s[white] %s\n", c, configCommand.Description),
+			)
 		}
 	}
 }
@@ -559,4 +765,294 @@ func (v *View) togglePaneSize() {
 func (v *View) checkIsPaneMaximized() bool {
 	fpName, _ := v.tviewPages.GetFrontPage()
 	return fpName == constant.Page.MaximizedPane
+}
+
+func (v *View) startPane(index int) {
+	p := v.panes[index]
+
+	go func() {
+		p.mu.Lock()
+		oldCmd := p.cmd
+		oldGen := p.generation
+		p.generation++
+		gen := p.generation
+		p.stopExecuted = false
+		p.mu.Unlock()
+
+		v.tviewApp.QueueUpdate(func() {
+			_, _ = fmt.Fprintf(
+				p.textView,
+				"\n[gray]━━━ Started at %s ━━━[-]\n\n",
+				time.Now().Format("15:04:05"),
+			)
+		})
+
+		if oldCmd != nil && oldCmd.Process != nil {
+			p.markExpectedStop(oldGen)
+			pid := oldCmd.Process.Pid
+			if err := unix.Kill(-pid, unix.SIGKILL); err != nil && err != syscall.ESRCH {
+				logger.Warnf(
+					"failed to send SIGKILL during restart cleanup for pane %s (pid=%d, pgid=%d): %v",
+					p.config.Name,
+					pid,
+					-pid,
+					err,
+				)
+			}
+			for range 50 {
+				if err := unix.Kill(-pid, 0); err == syscall.ESRCH {
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+		}
+
+		newCmd, err := v.runPaneUserCommand(p, gen)
+		if err != nil {
+			logger.Errorf("error restarting start command for pane %s: %v", p.config.Name, err)
+			v.tviewApp.QueueUpdate(func() {
+				_, _ = fmt.Fprintf(p.textView, "[red]Failed to start: %s[-]\n", err)
+			})
+			v.tviewApp.QueueUpdate(func() {
+				v.updatePaneTitle(index)
+			})
+			return
+		}
+
+		p.mu.Lock()
+		p.cmd = newCmd
+		p.mu.Unlock()
+
+		go func(p *Pane, c *exec.Cmd, gen int) {
+			defer p.clearExpectedStop(gen)
+			if err := c.Wait(); err != nil {
+				v.handlePaneCommandWaitError(p, "start", gen, err)
+			}
+			p.mu.Lock()
+			if p.cmd == c {
+				p.cmd = nil
+			}
+			p.mu.Unlock()
+			v.tviewApp.QueueUpdate(func() {
+				v.updatePaneTitle(index)
+			})
+		}(p, newCmd, gen)
+
+		v.tviewApp.QueueUpdate(func() {
+			v.updatePaneTitle(index)
+		})
+	}()
+}
+
+func (v *View) stopPane(index int) {
+	p := v.panes[index]
+
+	go func() {
+		p.mu.Lock()
+		cmd := p.cmd
+		gen := p.generation
+		p.mu.Unlock()
+
+		v.tviewApp.QueueUpdate(func() {
+			_, _ = fmt.Fprintf(
+				p.textView,
+				"\n[gray]━━━ Stopping... %s ━━━[-]\n\n",
+				time.Now().Format("15:04:05"),
+			)
+		})
+
+		if cmd != nil && cmd.Process != nil {
+			p.markExpectedStop(gen)
+			pid := cmd.Process.Pid
+			if err := unix.Kill(-pid, unix.SIGINT); err != nil && err != syscall.ESRCH {
+				logger.Warnf(
+					"failed to send SIGINT to process group for pane %s (pid=%d, pgid=%d): %v",
+					p.config.Name,
+					pid,
+					-pid,
+					err,
+				)
+			}
+
+			exited := false
+			for range 30 {
+				if err := unix.Kill(-pid, 0); err == syscall.ESRCH {
+					exited = true
+					break
+				}
+				time.Sleep(100 * time.Millisecond)
+			}
+
+			if !exited {
+				if err := unix.Kill(-pid, unix.SIGKILL); err != nil && err != syscall.ESRCH {
+					logger.Warnf(
+						"failed to send SIGKILL to process group for pane %s (pid=%d, pgid=%d): %v",
+						p.config.Name,
+						pid,
+						-pid,
+						err,
+					)
+				}
+				for range 20 {
+					if err := unix.Kill(-pid, 0); err == syscall.ESRCH {
+						break
+					}
+					time.Sleep(100 * time.Millisecond)
+				}
+			}
+		}
+
+		stopErrorCount := v.runPaneCommandToTextView(
+			p.config.Name,
+			p.config.Dir,
+			p.config.Stop,
+			p.textView,
+		)
+
+		p.mu.Lock()
+		p.stopExecuted = stopErrorCount == 0
+		p.mu.Unlock()
+
+		v.tviewApp.QueueUpdate(func() {
+			if stopErrorCount == 0 {
+				_, _ = fmt.Fprintf(
+					p.textView,
+					"\n[gray]━━━ Stopped at %s ━━━[-]\n\n",
+					time.Now().Format("15:04:05"),
+				)
+			} else {
+				_, _ = fmt.Fprintf(p.textView, "\n[red]━━━ Stop command failed at %s (%d error(s)); final shutdown will retry cleanup ━━━[-]\n\n", time.Now().Format("15:04:05"), stopErrorCount)
+			}
+		})
+
+		v.tviewApp.QueueUpdate(func() {
+			v.updatePaneTitle(index)
+		})
+	}()
+}
+
+func (v *View) runPaneCommandToTextView(
+	paneName, dir, userCmd string,
+	textView *tview.TextView,
+) int {
+	var errorMu sync.Mutex
+	errorCount := 0
+	recordError := func() {
+		errorMu.Lock()
+		defer errorMu.Unlock()
+		errorCount++
+	}
+
+	sh := shell.Current()
+	cmd := exec.Command(sh, "-c", userCmd)
+	cmd.Env = append(os.Environ(), v.envVars...)
+	cmd.Dir = dir
+
+	stdout, err1 := cmd.StdoutPipe()
+	stderr, err2 := cmd.StderrPipe()
+	if err1 != nil || err2 != nil {
+		if err1 != nil {
+			recordError()
+		}
+		if err2 != nil {
+			recordError()
+		}
+		displayErr := err1
+		if displayErr == nil {
+			displayErr = err2
+		}
+		if err1 != nil {
+			logger.Errorf(
+				"error creating stdout pipe for stop command for pane %s: %v",
+				paneName,
+				err1,
+			)
+		}
+		if err2 != nil {
+			logger.Errorf(
+				"error creating stderr pipe for stop command for pane %s: %v",
+				paneName,
+				err2,
+			)
+		}
+		v.tviewApp.QueueUpdate(func() {
+			_, _ = fmt.Fprintf(textView, "[red]Error piping stop command: %v[-]\n", displayErr)
+		})
+		return errorCount
+	}
+
+	if err := cmd.Start(); err != nil {
+		recordError()
+		logger.Errorf("error starting stop command for pane %s: %v", paneName, err)
+		v.tviewApp.QueueUpdate(func() {
+			_, _ = fmt.Fprintf(textView, "[red]Error starting stop command: %v[-]\n", err)
+		})
+		return errorCount
+	}
+
+	var wg sync.WaitGroup
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			t := scanner.Text()
+			v.tviewApp.QueueUpdate(func() {
+				_, _ = textView.Write([]byte(t + "\n"))
+			})
+		}
+		if err := scanner.Err(); err != nil {
+			recordError()
+			logger.Errorf("error reading stdout for pane %s during stop command: %v", paneName, err)
+		}
+	}()
+
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			t := scanner.Text()
+			v.tviewApp.QueueUpdate(func() {
+				_, _ = textView.Write([]byte("[#8B4513]" + t + "[white]\n"))
+			})
+		}
+		if err := scanner.Err(); err != nil {
+			recordError()
+			logger.Errorf("error reading stderr for pane %s during stop command: %v", paneName, err)
+		}
+	}()
+
+	if err := cmd.Wait(); err != nil {
+		recordError()
+		logger.Errorf("stop command for pane %s exited with error: %v", paneName, err)
+		v.tviewApp.QueueUpdate(func() {
+			_, _ = fmt.Fprintf(textView, "[red]Pane command exited with error: %v[-]\n", err)
+		})
+	}
+	wg.Wait()
+	return errorCount
+}
+
+// GetManuallyStoppedPaneNames returns a set of pane names that were manually stopped.
+func (v *View) GetManuallyStoppedPaneNames() map[string]bool {
+	result := make(map[string]bool)
+	for _, p := range v.panes {
+		p.mu.Lock()
+		if p.stopExecuted {
+			result[p.config.Name] = true
+		}
+		p.mu.Unlock()
+	}
+	return result
+}
+
+func (v *View) updatePaneTitle(index int) {
+	if index < 0 || index >= len(v.panes) {
+		return
+	}
+	p := v.panes[index]
+	focused := p.textView.HasFocus()
+	p.textView.SetTitle(getPaneTitle(index, p.config, focused, p.IsRunning()))
 }

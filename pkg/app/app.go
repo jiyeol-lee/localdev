@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"sync"
 
+	"github.com/jiyeol-lee/localdev/internal/logger"
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/view"
@@ -43,9 +44,16 @@ func Run(configFileName string) (*App, error) {
 	return a, nil
 }
 
-// StopPanes stops all panes defined in the configuration.
-func (a *App) StopPanes() {
+// StopPanes stops all panes defined in the configuration and returns an error count.
+func (a *App) StopPanes() int {
 	var wg sync.WaitGroup
+	var errorMu sync.Mutex
+	errorCount := 0
+	recordError := func() {
+		errorMu.Lock()
+		defer errorMu.Unlock()
+		errorCount++
+	}
 	colors := []string{
 		"\033[38;2;255;165;0m",   // Orange
 		"\033[38;2;255;255;0m",   // Yellow
@@ -60,7 +68,12 @@ func (a *App) StopPanes() {
 	}
 	reset := "\033[0m"
 
+	skipped := a.view.GetManuallyStoppedPaneNames()
+
 	for i, pane := range a.config.Panes {
+		if skipped[pane.Name] {
+			continue
+		}
 		pane := pane // capture
 		color := colors[i%len(colors)]
 
@@ -74,60 +87,67 @@ func (a *App) StopPanes() {
 			if projectDir != "" {
 				dir = filepath.Join(projectDir, pane.Dir)
 			}
-			cmd := exec.Command(
-				sh,
-				"-c",
-				fmt.Sprintf("cd %s && %s", dir, pane.Stop),
-			)
+			cmd := exec.Command(sh, "-c", pane.Stop)
+			cmd.Dir = dir
 			cmd.Env = append(os.Environ(), a.view.GetEnvVars()...)
 			stdout, err := cmd.StdoutPipe()
 			stderr, err2 := cmd.StderrPipe()
 			if err != nil {
-				fmt.Printf(
-					"❌ %sError creating stdout pipe for pane %s: %v%s\n",
-					color,
+				logger.Errorf(
+					"error creating stdout pipe for stop command for pane %s: %v",
 					pane.Name,
 					err,
-					reset,
 				)
+				recordError()
 			}
 			if err2 != nil {
-				fmt.Printf(
-					"❌ %sError creating stderr pipe for pane %s: %v%s\n",
-					color,
+				logger.Errorf(
+					"error creating stderr pipe for stop command for pane %s: %v",
 					pane.Name,
 					err2,
-					reset,
 				)
+				recordError()
 			}
 			if err != nil || err2 != nil {
 				return
 			}
 
 			if err := cmd.Start(); err != nil {
-				fmt.Printf(
-					"❌ %sFailed to start stop command for %s: %v%s\n",
-					color,
-					pane.Name,
-					err,
-					reset,
-				)
+				logger.Errorf("failed to start stop command for pane %s: %v", pane.Name, err)
+				recordError()
 				return
 			}
 
-			scanAndPrint := func(r io.ReadCloser) {
+			var scanWg sync.WaitGroup
+			scanAndPrint := func(stream string, r io.ReadCloser) {
+				defer scanWg.Done()
 				scanner := bufio.NewScanner(r)
 				for scanner.Scan() {
 					fmt.Printf("%s[%s] %s%s\n", color, pane.Name, scanner.Text(), reset)
 				}
+				if err := scanner.Err(); err != nil {
+					logger.Errorf(
+						"error reading %s for stop command for pane %s: %v",
+						stream,
+						pane.Name,
+						err,
+					)
+					recordError()
+				}
 			}
 
-			go scanAndPrint(stdout)
-			go scanAndPrint(stderr)
+			scanWg.Add(2)
+			go scanAndPrint("stdout", stdout)
+			go scanAndPrint("stderr", stderr)
 
-			cmd.Wait()
+			if err := cmd.Wait(); err != nil {
+				logger.Errorf("stop command for pane %s exited with error: %v", pane.Name, err)
+				recordError()
+			}
+			scanWg.Wait()
 		}()
 	}
 
 	wg.Wait()
+	return errorCount
 }

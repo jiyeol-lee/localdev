@@ -13,13 +13,15 @@ import (
 // It returns the paths to temporary files containing the environment variable dumps before and after the command execution.
 func RunCommandAndCaptureEnvVars(
 	command string,
-) (beforeCommandEnvVars, AfterCommandEnvVars string, err error) {
+) (beforeCommandEnvVars, afterCommandEnvVars string, err error) {
 	fb, err := os.CreateTemp("", "envdump-before-")
 	if err != nil {
 		return "", "", err
 	}
 	fa, err := os.CreateTemp("", "envdump-after-")
 	if err != nil {
+		_ = fb.Close()
+		_ = os.Remove(fb.Name())
 		return "", "", err
 	}
 	defer fb.Close()

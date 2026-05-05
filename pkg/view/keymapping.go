@@ -4,12 +4,15 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"syscall"
 
 	"github.com/gdamore/tcell/v2"
+	"github.com/jiyeol-lee/localdev/internal/logger"
 	"github.com/jiyeol-lee/localdev/pkg/config"
 	"github.com/jiyeol-lee/localdev/pkg/constant"
 	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 	"github.com/jiyeol-lee/localdev/pkg/util"
+	"golang.org/x/sys/unix"
 )
 
 // keyToFocusAction maps key inputs to focus actions for text views.
@@ -121,24 +124,53 @@ func (v *View) keyMapping(event *tcell.EventKey) *tcell.EventKey {
 				v.togglePaneSize()
 				return event
 			}
+			if configCommand.Command == constant.ReservedCommand.StartPane {
+				v.startPane(focusedViewIndex)
+				return event
+			}
+			if configCommand.Command == constant.ReservedCommand.StopPane {
+				v.stopPane(focusedViewIndex)
+				return event
+			}
 			if configCommand.Silent {
+				pane := v.panes[focusedViewIndex]
 				sh := shell.Current()
 				cmd := exec.Command(sh, "-c", configCommand.Command)
 				cmd.Env = append(os.Environ(), v.envVars...)
 				cmd.Dir = configPane.Dir
 				err := cmd.Start()
 				if err != nil {
-					v.panes[focusedViewIndex].textView.Write(
+					logger.Errorf(
+						"silent command failed to start for pane %s: %v",
+						configPane.Name,
+						err,
+					)
+					_, _ = v.panes[focusedViewIndex].textView.Write(
 						fmt.Appendf(nil, "[red]Command execution failed: %s[white]\n",
 							err,
 						),
 					)
 				} else {
-					v.panes[focusedViewIndex].textView.Write(
+					_, _ = v.panes[focusedViewIndex].textView.Write(
 						fmt.Appendf(nil, "[green]Command started successfully: %s[white]\n",
 							configCommand.Command,
 						),
 					)
+					go func() {
+						if err := cmd.Wait(); err != nil {
+							if exitErr, ok := err.(*exec.ExitError); ok {
+								if status, ok := exitErr.Sys().(syscall.WaitStatus); ok && status.Signaled() && status.Signal() == unix.SIGKILL {
+									return
+								}
+							}
+							logger.Errorf("silent command execution failed for pane %s: %v", configPane.Name, err)
+							v.tviewApp.QueueUpdate(func() {
+								_, _ = pane.textView.Write(
+									fmt.Appendf(nil, "[red]Command execution failed: %s[white]\n", err),
+								)
+							})
+						}
+					}()
 				}
 				return event
 			}
