@@ -14,8 +14,12 @@ var Page = struct {
 
 var ReservedCommand = struct {
 	TogglePaneSize string
+	StartPane      string
+	StopPane       string
 }{
 	TogglePaneSize: "<toggle_pane_size>",
+	StartPane:      "<start_pane>",
+	StopPane:       "<stop_pane>",
 }
 
 var AnsiColor = struct {
