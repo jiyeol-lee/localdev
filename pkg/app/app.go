@@ -19,11 +19,13 @@ type AppView struct {
 	textView *tview.TextView
 }
 
+// App represents the main application controller.
 type App struct {
 	view   *view.View
 	config *config.Config
 }
 
+// Run initializes and runs the application with the given configuration file name.
 func Run(configFileName string) (*App, error) {
 	a := &App{
 		view:   &view.View{},

@@ -81,6 +81,7 @@ func (c *Config) LoadConfig(configFileName string) error {
 	return nil
 }
 
+// GetProjectDir returns the project directory from the configuration.
 func (c *Config) GetProjectDir() string {
 	if c.ProjectSettings != nil {
 		return c.ProjectSettings.Dir
@@ -88,6 +89,7 @@ func (c *Config) GetProjectDir() string {
 	return ""
 }
 
+// GetProjectCommand returns the project command from the configuration.
 func (c *Config) GetProjectCommand() string {
 	if c.ProjectSettings != nil {
 		return c.ProjectSettings.Command
