@@ -8,6 +8,7 @@ import (
 	"github.com/jiyeol-lee/localdev/pkg/internal/shell"
 )
 
+// BranchSyncStatus represents the ahead/behind status of a git branch relative to its remote.
 type BranchSyncStatus struct {
 	Behind int `json:"behind"`
 	Ahead  int `json:"ahead"`

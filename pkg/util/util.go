@@ -4,6 +4,7 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
+// YamlToMap marshals the given data to YAML and then unmarshals it into a map.
 func YamlToMap[T any, V any](data T) (map[string]V, error) {
 	yamlData, err := yaml.Marshal(data)
 	if err != nil {

@@ -1,5 +1,6 @@
 package config
 
+// ConfigCommand represents a single command configuration for a pane.
 type ConfigCommand struct {
 	Command     string `yaml:"command"`
 	Description string `yaml:"description"`
@@ -7,6 +8,7 @@ type ConfigCommand struct {
 	AutoExecute bool   `yaml:"autoExecute"`
 }
 
+// ConfigCommands holds all configurable commands for a pane.
 type ConfigCommands struct {
 	LowerA *ConfigCommand `yaml:"lowerA,omitempty"`
 	LowerB *ConfigCommand `yaml:"lowerB,omitempty"`
@@ -63,11 +65,13 @@ type ConfigCommands struct {
 	UpperZ *ConfigCommand `yaml:"upperZ,omitempty"`
 }
 
+// ProjectSettings holds project-level configuration.
 type ProjectSettings struct {
 	Dir     string `yaml:"dir,omitempty"`
 	Command string `yaml:"command,omitempty"`
 }
 
+// ConfigPane represents the configuration for a single pane.
 type ConfigPane struct {
 	Name     string          `yaml:"name"`
 	Dir      string          `yaml:"dir"`
@@ -76,6 +80,7 @@ type ConfigPane struct {
 	Commands *ConfigCommands `yaml:"commands,omitempty"`
 }
 
+// Config represents the overall application configuration.
 type Config struct {
 	ProjectSettings *ProjectSettings `yaml:"project_settings,omitempty"`
 	Panes           []ConfigPane     `yaml:"panes"`
